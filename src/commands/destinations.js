@@ -23,15 +23,18 @@ function destId(value, commandHint) {
   return value.startsWith("dest_") ? value : `dest_${value}`;
 }
 
-export async function list({ origin }) {
-  return apiRequest(origin, "GET", "/destinations");
+export async function list({ flags, origin }) {
+  return apiRequest(origin, "GET", "/destinations", {
+    query: { site_id: flags.site || undefined },
+  });
 }
 
-export async function get({ args, origin }) {
+export async function get({ args, flags, origin }) {
   return apiRequest(
     origin,
     "GET",
-    `/destinations/${destId(args[0], "Usage: converly destinations get <type>")}`
+    `/destinations/${destId(args[0], "Usage: converly destinations get <type>")}`,
+    { query: { site_id: flags.site || undefined } }
   );
 }
 
@@ -181,8 +184,8 @@ export async function conversions({ args, flags, origin }) {
       query: {
         refresh: flags.refresh ? "true" : undefined,
         // Which site's connected ad account to read. Optional on a
-        // single-site account; on a multi-site one, omitting it falls back
-        // to the account's first site — pass it to be sure.
+        // single-site account; omitting it on a multi-site account is
+        // refused with site_id_required.
         site_id: flags.site || undefined,
       },
     }

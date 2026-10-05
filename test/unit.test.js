@@ -768,3 +768,85 @@ test("login requests the create scope (or create-conversion is dead on arrival)"
   // …and never the broad scope, which also authorizes credential ingestion.
   assert.ok(!LOGIN_SCOPES.includes("destinations:write"));
 });
+
+// --- destinations list/get --site (multi-site accounts) ---
+
+// Runs the real binary against a local server and records every request
+// path it receives, so the test sees exactly what reached the wire.
+async function spawnAgainstLocalServer(cliArgs) {
+  const requests = [];
+  const srv = http.createServer((req, res) => {
+    requests.push(req.url);
+    req.on("data", () => {});
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  const port = srv.address().port;
+  const bin = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "bin",
+    "converly.js"
+  );
+  const child = spawn(
+    process.execPath,
+    [bin, ...cliArgs, "--api", `http://127.0.0.1:${port}`],
+    { env: { ...process.env, CONVERLY_API_KEY: "sk_live_dummy" } }
+  );
+  let err = "";
+  child.stderr.on("data", (d) => (err += d));
+  const exitCode = await new Promise((r) => child.on("close", r));
+  srv.close();
+  return { exitCode, err, requests };
+}
+
+test("destinations list --site sends site_id", async () => {
+  const { exitCode, requests } = await spawnAgainstLocalServer([
+    "destinations",
+    "list",
+    "--site",
+    "site_abc",
+  ]);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(requests, ["/api/v1/destinations?site_id=site_abc"]);
+});
+
+test("destinations get --site sends site_id", async () => {
+  const { exitCode, requests } = await spawnAgainstLocalServer([
+    "destinations",
+    "get",
+    "google-ads",
+    "--site",
+    "site_abc",
+  ]);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(requests, ["/api/v1/destinations/dest_google-ads?site_id=site_abc"]);
+});
+
+test("destinations list/get without --site send no site_id", async () => {
+  const list = await spawnAgainstLocalServer(["destinations", "list"]);
+  assert.equal(list.exitCode, 0);
+  assert.deepEqual(list.requests, ["/api/v1/destinations"]);
+
+  const get = await spawnAgainstLocalServer(["destinations", "get", "google-ads"]);
+  assert.equal(get.exitCode, 0);
+  assert.deepEqual(get.requests, ["/api/v1/destinations/dest_google-ads"]);
+});
+
+test("destinations list/get still reject an unknown flag (no request sent)", async () => {
+  for (const argv of [
+    ["destinations", "list", "--sight", "site_abc"],
+    ["destinations", "get", "google-ads", "--sight", "site_abc"],
+  ]) {
+    const { exitCode, err, requests } = await spawnAgainstLocalServer(argv);
+    assert.equal(exitCode, 1);
+    const p = JSON.parse(err).error;
+    assert.equal(p.code, "unknown_flag");
+    assert.match(p.message, /--sight/);
+    assert.match(p.message, /--site/);
+    assert.deepEqual(requests, []);
+  }
+});

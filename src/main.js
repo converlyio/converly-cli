@@ -184,7 +184,7 @@ export const COMMANDS = {
     run: sites.create,
     usage: "converly sites create [--name X] [--domain example.com] [--timezone Z]",
     flags: ["name", "domain", "timezone"],
-    help: "Create a site. Most accounts already have a default site — prefer `sites update` on it.",
+    help: "Create a site. Most accounts already have a default site — prefer `sites update` on it. Refused with site_limit_reached when the account's plan has no free site.",
   },
   "sites update": {
     run: sites.update,
@@ -212,15 +212,15 @@ export const COMMANDS = {
   },
   "destinations list": {
     run: destinations.list,
-    usage: "converly destinations list",
-    flags: [],
-    help: "The account's destinations and whether each is connected.",
+    usage: "converly destinations list [--site <site_id>]",
+    flags: ["site"],
+    help: "The account's destinations and whether each is connected. Pass --site on multi-site accounts; omitting it there is refused (site_id_required).",
   },
   "destinations get": {
     run: destinations.get,
-    usage: "converly destinations get <type>   (e.g. google-ads)",
-    flags: [],
-    help: "One destination's connection state.",
+    usage: "converly destinations get <type> [--site <site_id>]   (e.g. google-ads)",
+    flags: ["site"],
+    help: "One destination's connection state. Pass --site on multi-site accounts; omitting it there is refused (site_id_required).",
   },
   "destinations connect": {
     run: destinations.connect,
