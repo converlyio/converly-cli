@@ -123,6 +123,9 @@ function buildFilters(flags) {
     const values = String(flags[flag]).split(",").map((value) => value.trim()).filter(Boolean);
     list.push({ field, op, values: field === "page" ? values : values.map((id) => ({ id })) });
   }
+  if (flags.match !== undefined && list.length === 0) {
+    throw new Error("--match needs at least one of --pages, --except-pages, --form-ids or --except-form-ids.");
+  }
   return { match: flags.match ?? "all", list };
 }
 
@@ -137,7 +140,6 @@ function refuseJsonWithFilters(flags) {
 
 /** Build the trigger settings and optional public filters for a flow. */
 export function buildTriggerConfig(flags) {
-  const filters = buildFilters(flags);
   if (flags.key !== undefined && flags.trigger !== "api") {
     throw new Error(
       "--key only applies to --trigger api. Form tool triggers do not use a webhook key."
@@ -154,8 +156,14 @@ export function buildTriggerConfig(flags) {
         "--pages does not apply to --trigger api. The webhook fires from the site's backend, so there is no page to filter on."
       );
     }
-    return { integrationId: "api", key: flags.key, ...(filters !== undefined && { filters }) };
+    for (const flag of ["except-pages", "form-ids", "except-form-ids", "match", "filters-json"]) {
+      if (flags[flag] !== undefined) {
+        throw new Error(`--${flag} does not apply to --trigger api. The api trigger does not support filters.`);
+      }
+    }
+    return { integrationId: "api", key: flags.key };
   }
+  const filters = buildFilters(flags);
   if (!flags.trigger && filters === undefined) return undefined;
   return {
     ...(flags.trigger && { integrationId: flags.trigger }),

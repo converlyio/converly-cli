@@ -907,7 +907,6 @@ for (const [name, argv, filters] of [
   ["both form rules", ["--form-ids", "0012,9007199254740993123", "--except-form-ids", "34,form_56"], { match: "all", list: [formOnly, formExcept] }],
   ["all four rules with --match any", ["--pages", "/pricing,/services/*", "--except-pages", "/internal,/staff/*", "--form-ids", "0012,9007199254740993123", "--except-form-ids", "34,form_56", "--match", "any"], { match: "any", list: [pageOnly, pageExcept, formOnly, formExcept] }],
   ["--match all", ["--form-ids", "0012,9007199254740993123", "--match", "all"], { match: "all", list: [formOnly] }],
-  ["--match alone", ["--match", "any"], { match: "any", list: [] }],
   ["--filters-json", ["--filters-json", JSON.stringify(publicFilters)], publicFilters],
 ]) {
   test(`flows create sends the exact request body for ${name}`, async () => {
@@ -1003,6 +1002,66 @@ for (const [flag, value] of [["pages", "/a"], ["except-pages", "/b"], ["form-ids
     } });
   });
 }
+
+for (const command of ["create", "update"]) {
+  test(`flows ${command} refuses --match without rule flags locally`, async () => {
+    const args = command === "create" ? createFilterArgs : ["flows", "update", "flow_x"];
+    for (const value of ["all", "any"]) {
+      const result = await runWithMockApi([...args, "--match", value]);
+      assert.equal(result.exitCode, 1);
+      assert.equal(result.stdout, "");
+      assert.deepEqual(result.requests, []);
+      const error = JSON.parse(result.stderr).error;
+      if (command === "create") {
+        assert.deepEqual(error, {
+          code: "cli_error",
+          message: "--match needs at least one of --pages, --except-pages, --form-ids or --except-form-ids.",
+        });
+      } else {
+        // Update rejects --match before reaching the command handler.
+        assert.equal(error.code, "unknown_flag");
+        assert.ok(error.message.includes("--match"));
+      }
+    }
+  });
+}
+
+const createApiArgs = ["flows", "create", "--site", "site_x", "--name", "Leads", "--trigger", "api", "--key", "main-signup"];
+
+for (const [flag, value] of [
+  ["pages", "/a"],
+  ["except-pages", "/b"],
+  ["form-ids", "12"],
+  ["except-form-ids", "34"],
+  ["match", "any"],
+  ["filters-json", JSON.stringify(publicFilters)],
+]) {
+  test(`flows create refuses --${flag} with --trigger api locally`, async () => {
+    const result = await runWithMockApi([...createApiArgs, `--${flag}`, value]);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(result.requests, []);
+    assert.deepEqual(JSON.parse(result.stderr), { error: {
+      code: "cli_error",
+      message: flag === "pages"
+        ? "--pages does not apply to --trigger api. The webhook fires from the site's backend, so there is no page to filter on."
+        : `--${flag} does not apply to --trigger api. The api trigger does not support filters.`,
+    } });
+  });
+}
+
+test("flows create keeps the valid api request body unchanged", async () => {
+  const result = await runWithMockApi(createApiArgs);
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(result.requests, [{
+    path: "/api/v1/flows", method: "POST",
+    body: {
+      site_id: "site_x", name: "Leads",
+      trigger_config: { integrationId: "api", key: "main-signup" },
+    },
+  }]);
+});
 
 test("flows create refuses invalid --match values locally", async () => {
   for (const value of ["ALL", "Any", "none", "true", "false", "0"]) {
