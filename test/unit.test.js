@@ -966,6 +966,32 @@ for (const [command, args, method, apiPath] of [
 }
 
 for (const [flag, value] of [["pages", "/a"], ["except-pages", "/b"], ["form-ids", "12"], ["except-form-ids", "34"], ["match", "any"]]) {
+  for (const command of ["create", "update"]) {
+    test(`flows ${command} refuses --json with --${flag} locally`, async () => {
+      const body = { site_id: "site_x", name: "Leads", trigger_config: { integrationId: "gravity-forms" } };
+      for (const flagValue of flag === "match" ? [value, "all", "invalid"] : [value]) {
+        const result = await runWithMockApi([
+          "flows", command, ...(command === "update" ? ["flow_x"] : []),
+          "--json", JSON.stringify(body), `--${flag}=${flagValue}`,
+        ]);
+        assert.equal(result.exitCode, 1);
+        assert.equal(result.stdout, "");
+        assert.deepEqual(result.requests, []);
+        const error = JSON.parse(result.stderr).error;
+        if (command === "create") {
+          assert.deepEqual(error, {
+            code: "cli_error",
+            message: "Use --json on its own, without --pages, --except-pages, --form-ids, --except-form-ids or --match.",
+          });
+        } else {
+          // Update does not accept shortcut filter flags at all.
+          assert.equal(error.code, "unknown_flag");
+          assert.ok(error.message.includes(`--${flag}`));
+        }
+      }
+    });
+  }
+
   test(`flows create refuses --filters-json with --${flag} locally`, async () => {
     const result = await runWithMockApi([...createFilterArgs, "--filters-json", JSON.stringify(publicFilters), `--${flag}`, value]);
     assert.equal(result.exitCode, 1);
@@ -1034,6 +1060,30 @@ test("triggers options teaches a public filter using the returned field", async 
   const example = output.next_step.match(/--filters-json '([^']+)'/);
   assert.ok(example);
   assert.deepEqual(JSON.parse(example[1]), { match: "all", list: [{ field: "event_type", op: "only", values: [{ id: "<id>" }] }] });
+});
+
+test("triggers options help and missing-source message name all connected tools", async () => {
+  // Pinned to the frontend trigger-connect registry's SUPPORTED_TRIGGER_CONNECTS.
+  const tools = [
+    ["Typeform", "typeform"],
+    ["Calendly", "calendly"],
+    ["Acuity", "acuity-scheduling"],
+    ["Jotform", "jotform"],
+    ["Cal.com (cal-com)", "cal-com"],
+  ];
+  const help = await runWithMockApi(["help", "triggers", "options"]);
+  assert.equal(help.exitCode, 0);
+  assert.equal(help.stderr, "");
+  assert.deepEqual(help.requests, []);
+  assert.equal(help.stdout.match(/providers \((.*?)\);/)[1], tools.map(([name]) => name).join(", "));
+
+  const missing = await runWithMockApi(["triggers", "options", "--site", "site_x"]);
+  assert.equal(missing.exitCode, 1);
+  assert.equal(missing.stdout, "");
+  assert.deepEqual(missing.requests, []);
+  const error = JSON.parse(missing.stderr).error;
+  assert.equal(error.code, "cli_error");
+  assert.equal(error.message.match(/e\.g\. (.*?)\)\./)[1], tools.map(([, slug]) => slug).join(", "));
 });
 
 test("filter help documents the flags and public format", () => {

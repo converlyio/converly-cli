@@ -70,13 +70,13 @@ export async function connect({ args, flags, origin }) {
  * so a chosen value can be written to trigger_config.filters. This is the
  * middle of the narrowing loop: `triggers connect` → `handoffs wait` →
  * `triggers options`. Only requires_connection providers (Typeform,
- * Calendly, Acuity, Jotform) support it; browser-detected form tools narrow
+ * Calendly, Acuity, Jotform, Cal.com) support it; browser-detected form tools narrow
  * by page (`flows create --pages`), and Gravity Forms also by form ID.
  */
 export async function options({ args, flags, origin }) {
   if (!args[0]) {
     throw new Error(
-      "Missing trigger source. Usage: converly triggers options <source> --site <site_id> (a requires_connection provider slug from `converly triggers`, e.g. typeform, calendly, acuity-scheduling, jotform)."
+      "Missing trigger source. Usage: converly triggers options <source> --site <site_id> (a requires_connection provider slug from `converly triggers`, e.g. typeform, calendly, acuity-scheduling, jotform, cal-com)."
     );
   }
   if (!flags.site) {

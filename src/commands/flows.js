@@ -97,9 +97,10 @@ function parseFiltersJson(value) {
   return filters;
 }
 
+const filterShortcuts = ["pages", "except-pages", "form-ids", "except-form-ids", "match"];
+
 function buildFilters(flags) {
-  const shortcuts = ["pages", "except-pages", "form-ids", "except-form-ids", "match"];
-  const hasShortcuts = shortcuts.some((flag) => flags[flag] !== undefined);
+  const hasShortcuts = filterShortcuts.some((flag) => flags[flag] !== undefined);
   if (flags["filters-json"] !== undefined) {
     if (hasShortcuts) {
       throw new Error("Use --filters-json on its own, without --pages, --except-pages, --form-ids, --except-form-ids or --match.");
@@ -128,6 +129,9 @@ function buildFilters(flags) {
 function refuseJsonWithFilters(flags) {
   if (flags.json !== undefined && flags["filters-json"] !== undefined) {
     throw new Error("Use either --json or --filters-json, not both.");
+  }
+  if (flags.json !== undefined && filterShortcuts.some((flag) => flags[flag] !== undefined)) {
+    throw new Error("Use --json on its own, without --pages, --except-pages, --form-ids, --except-form-ids or --match.");
   }
 }
 

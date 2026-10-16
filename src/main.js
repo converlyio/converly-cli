@@ -269,7 +269,7 @@ export const COMMANDS = {
     run: triggers.options,
     usage: "converly triggers options <source> --site <site_id> [--query <text>] [--limit N]   (e.g. typeform)",
     flags: ["site", "query", "limit"],
-    help: "List a connected platform's forms and event types with IDs and names, so the user can choose a value. Only requires_connection providers (Typeform, Calendly, Acuity, Jotform); connect first with `triggers connect`. Then put the chosen value in trigger_config.filters using `converly flows update <flow_id> --filters-json '<filters>'`. Use the field from the response, for example {\"match\":\"all\",\"list\":[{\"field\":\"form\",\"op\":\"only\",\"values\":[{\"id\":\"<id>\"}]}]}. --query filters value names (case-insensitive); --limit caps values per field (default 50). Browser form tools can use --pages, and Gravity Forms also supports --form-ids.",
+    help: "List a connected platform's forms and event types with IDs and names, so the user can choose a value. Only requires_connection providers (Typeform, Calendly, Acuity, Jotform, Cal.com (cal-com)); connect first with `triggers connect`. Then put the chosen value in trigger_config.filters using `converly flows update <flow_id> --filters-json '<filters>'`. Use the field from the response, for example {\"match\":\"all\",\"list\":[{\"field\":\"form\",\"op\":\"only\",\"values\":[{\"id\":\"<id>\"}]}]}. --query filters value names (case-insensitive); --limit caps values per field (default 50). Browser form tools can use --pages, and Gravity Forms also supports --form-ids.",
   },
   "actions": {
     run: flows.actionTypes,
