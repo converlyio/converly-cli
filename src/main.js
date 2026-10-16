@@ -269,7 +269,7 @@ export const COMMANDS = {
     run: triggers.options,
     usage: "converly triggers options <source> --site <site_id> [--query <text>] [--limit N]   (e.g. typeform)",
     flags: ["site", "query", "limit"],
-    help: "List a CONNECTED platform's filter options — the account's REAL forms / event types (with ids + names) — so you can offer the user a specific one instead of inventing values. Only requires_connection providers (Typeform, Calendly, Acuity, Jotform); connect first with `triggers connect`. Then narrow the flow by writing trigger_config.conditions, e.g. `converly flows update <flow_id> --json '{\"trigger_config\":{\"conditions\":{\"form\":{\"ids\":[\"...\"],\"names\":[\"...\"]}}}}'`. --query filters value names (case-insensitive); --limit caps values per field (default 50). Browser-detected form tools narrow by page instead (`flows create --pages`).",
+    help: "List a connected platform's forms and event types with IDs and names, so the user can choose a value. Only requires_connection providers (Typeform, Calendly, Acuity, Jotform); connect first with `triggers connect`. Then put the chosen value in trigger_config.filters using `converly flows update <flow_id> --filters-json '<filters>'`. Use the field from the response, for example {\"match\":\"all\",\"list\":[{\"field\":\"form\",\"op\":\"only\",\"values\":[{\"id\":\"<id>\"}]}]}. --query filters value names (case-insensitive); --limit caps values per field (default 50). Browser form tools can use --pages, and Gravity Forms also supports --form-ids.",
   },
   "actions": {
     run: flows.actionTypes,
@@ -291,15 +291,15 @@ export const COMMANDS = {
   },
   "flows create": {
     run: flows.create,
-    usage: "converly flows create --site <id> --name <name> --trigger <slug> --destination <slug> [--conversion-id <id> | --event-name <name>] [--value N --currency USD] [--pages /a,/b] | --json '<body>'   (api trigger: --trigger api --key <webhook-key>, no --pages)",
-    flags: ["json", "site", "name", "description", "trigger", "key", "pages", "destination", "conversion-id", "event-name", "custom", "value", "currency", "enhanced"],
-    help: "Create a draft flow. Simple form covers one trigger + one destination; --json takes the full flow body for anything richer. ALWAYS let the user pick the conversion rather than choosing one for them — run `converly destinations conversions <destination>` first and offer them the real list, since firing the wrong conversion quietly corrupts their reporting (Meta alone has ~17 standard events, so --event-name Lead is a guess, not a default). Google Ads takes --conversion-id, Meta and GA4 take --event-name, and --custom marks an event that isn't in the platform's standard list. --pages is OPTIONAL: omit it and the form trigger fires on every page (the common case); pass it to restrict to specific paths, e.g. --pages /contact,/demo. No filter is required. The api (webhook) trigger takes --key, the webhook identifier, instead of --pages.",
+    usage: "converly flows create --site <id> --name <name> --trigger <slug> --destination <slug> [--conversion-id <id> | --event-name <name>] [--value N --currency USD] [--pages /a,/b] [--except-pages /a,/b] [--form-ids 12,34] [--except-form-ids 56,78] [--match all|any] [--filters-json '<filters>'] | --json '<body>'   (api trigger: --trigger api --key <webhook-key>, no --pages)",
+    flags: ["json", "site", "name", "description", "trigger", "key", "pages", "except-pages", "form-ids", "except-form-ids", "match", "filters-json", "destination", "conversion-id", "event-name", "custom", "value", "currency", "enhanced"],
+    help: "Create a draft flow. Simple form covers one trigger and one destination; --json takes the full flow body for anything richer. Always let the user pick the conversion. Run `converly destinations conversions <destination>` first and offer them the real list, since choosing the wrong conversion corrupts their reporting. Google Ads takes --conversion-id, Meta and GA4 take --event-name, and --custom marks an event that is not in the platform's standard list. Filters are optional. --pages includes comma-separated paths, and --except-pages excludes them (use * for a section, e.g. '/services/*'). --form-ids includes comma-separated form IDs, and --except-form-ids excludes them. IDs are sent as text. --match all (the default) requires all rules; --match any requires any rule. These flags write trigger_config.filters. --filters-json takes a public filters object unchanged, e.g. '{\"match\":\"all\",\"list\":[{\"field\":\"form\",\"op\":\"only\",\"values\":[{\"id\":\"12\"}]}]}'. Use it without the shortcut filter flags or --json. Run `converly triggers` to see which filters each tool supports. With no filter flags, no filter settings are sent. The api (webhook) trigger takes --key, the webhook identifier, and does not accept --pages.",
   },
   "flows update": {
     run: flows.update,
-    usage: "converly flows update <flow_id> --json '{\"name\":\"...\"}'",
-    flags: ["json"],
-    help: "Update flow fields. Never pass status here — use publish/unpublish.",
+    usage: "converly flows update <flow_id> --json '{\"name\":\"...\"}' | --filters-json '<filters>'",
+    flags: ["json", "filters-json"],
+    help: "Update flow fields with --json, or change only trigger_config.filters with --filters-json, e.g. --filters-json '{\"match\":\"all\",\"list\":[{\"field\":\"form\",\"op\":\"only\",\"values\":[{\"id\":\"12\"}]}]}'. Use either --json or --filters-json, not both. Never pass status here. Use publish/unpublish.",
   },
   "flows delete": {
     run: flows.remove,

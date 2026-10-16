@@ -37,6 +37,18 @@ converly flows publish flow_XXX
 converly test-event --flow flow_XXX        # proves delivery end to end
 ```
 
+To narrow a flow when creating it, use `--pages /contact,/demo` or
+`--except-pages /internal` for page paths, and `--form-ids 12,34` or
+`--except-form-ids 56` for form IDs. Use `--match any` to accept any rule;
+the default is `--match all`. Run `converly triggers` to see which filters
+each tool supports. With no filter flags, no filter settings are sent.
+
+Both `flows create` and `flows update` accept `--filters-json` with the
+public filters object, for example
+`--filters-json '{"match":"all","list":[{"field":"form","op":"only","values":[{"id":"12"}]}]}'`.
+On update, this changes only the filters. Use `--filters-json` without the
+shortcut filter flags or `--json`.
+
 Then keep an eye on real conversions:
 
 ```bash

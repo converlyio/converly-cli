@@ -18,20 +18,10 @@ export async function triggerTypes({ flags, origin }) {
 }
 
 /**
- * Reshape the /v1 native-builder trigger catalogue into the honest
- * agent-facing shape — the same one the MCP surface emits
- * (src/app/mcp/route.ts builds it with omitFilterSchemas + agentSurface).
- * /v1's /trigger-types serves the FULL catalogue, which carries two things
- * an agent must not act on:
- *   1. custom_event — a type that can't be set up through this surface.
- *   2. the DESIGNED filter schemas (supports_filters / filters /
- *      at_least_one_filter_required). A flow write here only honours the
- *      trigger's page filter (`flows create --pages`). form_id /
- *      form_selector / page_path_filter are not accepted, and the
- *      "at least one filter required" flag is not enforced — a generic-form
- *      flow with pageFilter:"all" and no pages is valid and publishable.
- *      Leaving them in makes a careful agent stall on a requirement that
- *      does not exist. Strip both to match MCP.
+ * Keep the public filters catalogue, including all details returned for
+ * each filter, so agents can build trigger_config.filters. Drop the legacy
+ * supports_filters and at_least_one_filter_required fields, and custom_event
+ * because that trigger cannot be set up through this surface.
  * Exported so the reshaping is testable without a network.
  */
 export function toAgentTriggerCatalogue(data) {
@@ -40,7 +30,6 @@ export function toAgentTriggerCatalogue(data) {
     .map((t) => {
       const clean = { ...t };
       delete clean.supports_filters;
-      delete clean.filters;
       delete clean.at_least_one_filter_required;
       return clean;
     });
@@ -95,16 +84,59 @@ function parseJsonFlag(value, flagName) {
   }
 }
 
-/**
- * Build the trigger config for the simple form. Form tool triggers
- * filter by page; the api trigger is a server-side webhook, so it takes
- * a --key (the webhook identifier) and no page filter. Exported so the
- * validation rules are testable without a network.
- */
+function parseFiltersJson(value) {
+  let filters;
+  try {
+    filters = JSON.parse(value);
+  } catch {
+    throw new Error("--filters-json must be a JSON object.");
+  }
+  if (filters === null || typeof filters !== "object" || Array.isArray(filters)) {
+    throw new Error("--filters-json must be a JSON object.");
+  }
+  return filters;
+}
+
+function buildFilters(flags) {
+  const shortcuts = ["pages", "except-pages", "form-ids", "except-form-ids", "match"];
+  const hasShortcuts = shortcuts.some((flag) => flags[flag] !== undefined);
+  if (flags["filters-json"] !== undefined) {
+    if (hasShortcuts) {
+      throw new Error("Use --filters-json on its own, without --pages, --except-pages, --form-ids, --except-form-ids or --match.");
+    }
+    return parseFiltersJson(flags["filters-json"]);
+  }
+  if (flags.match !== undefined && flags.match !== "all" && flags.match !== "any") {
+    throw new Error("--match must be all or any.");
+  }
+  if (!hasShortcuts) return undefined;
+
+  const list = [];
+  for (const [flag, field, op] of [
+    ["pages", "page", "only"],
+    ["except-pages", "page", "except"],
+    ["form-ids", "form", "only"],
+    ["except-form-ids", "form", "except"],
+  ]) {
+    if (flags[flag] === undefined) continue;
+    const values = String(flags[flag]).split(",").map((value) => value.trim()).filter(Boolean);
+    list.push({ field, op, values: field === "page" ? values : values.map((id) => ({ id })) });
+  }
+  return { match: flags.match ?? "all", list };
+}
+
+function refuseJsonWithFilters(flags) {
+  if (flags.json !== undefined && flags["filters-json"] !== undefined) {
+    throw new Error("Use either --json or --filters-json, not both.");
+  }
+}
+
+/** Build the trigger settings and optional public filters for a flow. */
 export function buildTriggerConfig(flags) {
+  const filters = buildFilters(flags);
   if (flags.key !== undefined && flags.trigger !== "api") {
     throw new Error(
-      "--key only applies to --trigger api. Form tool triggers filter by page, not by webhook key."
+      "--key only applies to --trigger api. Form tool triggers do not use a webhook key."
     );
   }
   if (flags.trigger === "api") {
@@ -118,19 +150,13 @@ export function buildTriggerConfig(flags) {
         "--pages does not apply to --trigger api. The webhook fires from the site's backend, so there is no page to filter on."
       );
     }
-    return { integrationId: "api", key: flags.key };
+    return { integrationId: "api", key: flags.key, ...(filters !== undefined && { filters }) };
   }
-  if (!flags.trigger) return undefined;
-  return flags.pages
-    ? {
-        integrationId: flags.trigger,
-        pageFilter: "specific",
-        pages: String(flags.pages)
-          .split(",")
-          .map((p) => p.trim())
-          .filter(Boolean),
-      }
-    : { integrationId: flags.trigger, pageFilter: "all" };
+  if (!flags.trigger && filters === undefined) return undefined;
+  return {
+    ...(flags.trigger && { integrationId: flags.trigger }),
+    ...(filters !== undefined && { filters }),
+  };
 }
 
 /**
@@ -168,6 +194,7 @@ function buildActionConfig(flags) {
 }
 
 export async function create({ flags, origin }) {
+  refuseJsonWithFilters(flags);
   if (flags.json) {
     return apiRequest(origin, "POST", "/flows", {
       body: parseJsonFlag(flags.json, "json"),
@@ -203,13 +230,16 @@ export async function create({ flags, origin }) {
 }
 
 export async function update({ args, flags, origin }) {
-  if (!flags.json) {
+  refuseJsonWithFilters(flags);
+  if (!flags.json && flags["filters-json"] === undefined) {
     throw new Error(
-      "flows update takes --json with the fields to change, e.g. --json '{\"name\":\"New name\"}'."
+      "flows update takes --json with the fields to change, e.g. --json '{\"name\":\"New name\"}', or --filters-json with the filters to change."
     );
   }
-  return apiRequest(origin, "PATCH", `/flows/${requireFlowId(args, "converly flows update <flow_id> --json '{...}'")}`, {
-    body: parseJsonFlag(flags.json, "json"),
+  return apiRequest(origin, "PATCH", `/flows/${requireFlowId(args, "converly flows update <flow_id> --json '{...}' | --filters-json '{...}'")}`, {
+    body: flags["filters-json"] !== undefined
+      ? { trigger_config: { filters: parseFiltersJson(flags["filters-json"]) } }
+      : parseJsonFlag(flags.json, "json"),
   });
 }
 

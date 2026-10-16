@@ -66,13 +66,12 @@ export async function connect({ args, flags, origin }) {
 }
 
 /**
- * List a CONNECTED platform's filter options — the account's REAL forms /
- * event types, with ids and names — so a specific one can be offered to the
- * user and written back as the flow's trigger_config.conditions. This is the
+ * List a connected platform's forms and event types, with ids and names,
+ * so a chosen value can be written to trigger_config.filters. This is the
  * middle of the narrowing loop: `triggers connect` → `handoffs wait` →
  * `triggers options`. Only requires_connection providers (Typeform,
  * Calendly, Acuity, Jotform) support it; browser-detected form tools narrow
- * by page instead (`flows create --pages`).
+ * by page (`flows create --pages`), and Gravity Forms also by form ID.
  */
 export async function options({ args, flags, origin }) {
   if (!args[0]) {
@@ -100,9 +99,9 @@ export async function options({ args, flags, origin }) {
     }
   );
 
-  // Retrieval is not the end — tell the agent how to apply a chosen value.
+  // Tell the agent how to apply a chosen value.
   // The field key comes from the response so the example matches the actual
-  // condition ("form", "calendar", …). Values are live from the platform;
+  // filter ("form", "calendar", etc.). Values are live from the platform;
   // never invent ones not listed here.
   const field = Array.isArray(result?.fields)
     ? result.fields.find((f) => f && f.field)
@@ -112,8 +111,8 @@ export async function options({ args, flags, origin }) {
     ...result,
     next_step:
       "Offer the user a specific value from fields[].values, then narrow the flow to it by " +
-      "writing trigger_config.conditions, e.g. `converly flows update <flow_id> --json " +
-      `'{"trigger_config":{"conditions":{"${fieldKey}":{"ids":["<id>"],"names":["<name>"]}}}}'\`. ` +
+      "writing trigger_config.filters, e.g. `converly flows update <flow_id> --filters-json " +
+      `'${JSON.stringify({ match: "all", list: [{ field: fieldKey, op: "only", values: [{ id: "<id>" }] }] })}'\`. ` +
       "Values come live from the platform; never invent ones not in this list.",
   };
 }

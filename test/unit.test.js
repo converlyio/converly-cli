@@ -622,20 +622,17 @@ test("flows create: --pages with --trigger api rejects", async () => {
   );
 });
 
-test("buildTriggerConfig: api trigger carries key and no pageFilter", () => {
+test("buildTriggerConfig: no filter flags sends no filter settings", () => {
   assert.deepEqual(buildTriggerConfig({ trigger: "api", key: "main-signup" }), {
     integrationId: "api",
     key: "main-signup",
   });
-  // Form tool triggers keep the existing pageFilter shapes.
   assert.deepEqual(buildTriggerConfig({ trigger: "generic-form" }), {
     integrationId: "generic-form",
-    pageFilter: "all",
   });
   assert.deepEqual(buildTriggerConfig({ trigger: "typeform", pages: "/a, /b" }), {
     integrationId: "typeform",
-    pageFilter: "specific",
-    pages: ["/a", "/b"],
+    filters: { match: "all", list: [{ field: "page", op: "only", values: ["/a", "/b"] }] },
   });
 });
 
@@ -704,7 +701,7 @@ test("device poll deadline extends when the server reports a later expires_at", 
   assert.equal(deadline, Date.parse("2026-08-10T00:34:00Z"));
 });
 
-test("toAgentTriggerCatalogue: strips designed filter schemas and custom_event", () => {
+test("toAgentTriggerCatalogue: keeps public filters and drops legacy fields and custom_event", () => {
   const raw = [
     {
       type: "form_submission",
@@ -712,11 +709,11 @@ test("toAgentTriggerCatalogue: strips designed filter schemas and custom_event",
       when_to_use: "…",
       providers: ["generic-form"],
       supports_filters: ["form_id", "form_selector", "page_path_filter"],
-      filters: [{ key: "form_id", type: "string", required: false, label: "Form ID" }],
+      filters: [{ field: "page", key: "page", ops: ["only", "except"], inputs: { as: "path" }, kind: "path", label: "Page", extra: { future: true } }],
       at_least_one_filter_required: true,
     },
     { type: "custom_event", name: "Custom event", providers: [] },
-    { type: "meeting_booked", name: "Meeting booked", providers: ["acuity"] },
+    { type: "meeting_booked", name: "Meeting booked", providers: ["acuity"], filters: [{ field: "calendar", key: "calendar", ops: ["only"], inputs: { connected: "list" }, kind: "entity" }] },
   ];
   const out = toAgentTriggerCatalogue(raw);
   // custom_event is dropped entirely.
@@ -724,11 +721,13 @@ test("toAgentTriggerCatalogue: strips designed filter schemas and custom_event",
     out.map((t) => t.type),
     ["form_submission", "meeting_booked"]
   );
-  // The three designed-filter fields never reach an agent.
+  // Public filter entries survive unchanged, including additional API fields.
   const form = out.find((t) => t.type === "form_submission");
   assert.equal("supports_filters" in form, false);
-  assert.equal("filters" in form, false);
+  assert.deepEqual(form.filters, raw[0].filters);
+  assert.deepEqual(out[1].filters, raw[2].filters);
   assert.equal("at_least_one_filter_required" in form, false);
+  assert.equal(raw[0].at_least_one_filter_required, true);
   // Everything an agent legitimately needs survives.
   assert.equal(form.when_to_use, "…");
   assert.deepEqual(form.providers, ["generic-form"]);
@@ -849,4 +848,205 @@ test("destinations list/get still reject an unknown flag (no request sent)", asy
     assert.match(p.message, /--site/);
     assert.deepEqual(requests, []);
   }
+});
+
+// Exercise argument parsing, request bodies and printed output without a network.
+async function runWithMockApi(argv, response = { ok: true }, status = 200) {
+  const previous = {
+    fetch: globalThis.fetch,
+    stdout: process.stdout.write,
+    stderr: process.stderr.write,
+    exitCode: process.exitCode,
+    apiKey: process.env.CONVERLY_API_KEY,
+  };
+  const requests = [];
+  let stdout = "";
+  let stderr = "";
+  globalThis.fetch = async (url, options) => {
+    requests.push({
+      path: url.pathname,
+      method: options.method,
+      body: options.body === undefined ? undefined : JSON.parse(options.body),
+    });
+    return new Response(JSON.stringify(response), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  process.stdout.write = (chunk) => { stdout += chunk; return true; };
+  process.stderr.write = (chunk) => { stderr += chunk; return true; };
+  process.exitCode = 0;
+  process.env.CONVERLY_API_KEY = "test-placeholder";
+  try {
+    await main([...argv, "--api", "https://app.converly.io"]);
+    return { requests, stdout, stderr, exitCode: process.exitCode };
+  } finally {
+    globalThis.fetch = previous.fetch;
+    process.stdout.write = previous.stdout;
+    process.stderr.write = previous.stderr;
+    process.exitCode = previous.exitCode;
+    if (previous.apiKey === undefined) delete process.env.CONVERLY_API_KEY;
+    else process.env.CONVERLY_API_KEY = previous.apiKey;
+  }
+}
+
+const createFilterArgs = ["flows", "create", "--site", "site_x", "--name", "Leads", "--trigger", "gravity-forms"];
+const pageOnly = { field: "page", op: "only", values: ["/pricing", "/services/*"] };
+const pageExcept = { field: "page", op: "except", values: ["/internal", "/staff/*"] };
+const formOnly = { field: "form", op: "only", values: [{ id: "0012" }, { id: "9007199254740993123" }] };
+const formExcept = { field: "form", op: "except", values: [{ id: "34" }, { id: "form_56" }] };
+const publicFilters = { match: "all", list: [pageOnly, formOnly] };
+
+for (const [name, argv, filters] of [
+  ["no filters", [], undefined],
+  ["--pages", ["--pages", " /pricing, /services/*, "], { match: "all", list: [pageOnly] }],
+  ["--except-pages", ["--except-pages", " /internal, /staff/* "], { match: "all", list: [pageExcept] }],
+  ["--form-ids", ["--form-ids", " 0012,9007199254740993123, "], { match: "all", list: [formOnly] }],
+  ["--except-form-ids", ["--except-form-ids", " 34, form_56 "], { match: "all", list: [formExcept] }],
+  ["both page rules", ["--pages", "/pricing,/services/*", "--except-pages", "/internal,/staff/*"], { match: "all", list: [pageOnly, pageExcept] }],
+  ["both form rules", ["--form-ids", "0012,9007199254740993123", "--except-form-ids", "34,form_56"], { match: "all", list: [formOnly, formExcept] }],
+  ["all four rules with --match any", ["--pages", "/pricing,/services/*", "--except-pages", "/internal,/staff/*", "--form-ids", "0012,9007199254740993123", "--except-form-ids", "34,form_56", "--match", "any"], { match: "any", list: [pageOnly, pageExcept, formOnly, formExcept] }],
+  ["--match all", ["--form-ids", "0012,9007199254740993123", "--match", "all"], { match: "all", list: [formOnly] }],
+  ["--match alone", ["--match", "any"], { match: "any", list: [] }],
+  ["--filters-json", ["--filters-json", JSON.stringify(publicFilters)], publicFilters],
+]) {
+  test(`flows create sends the exact request body for ${name}`, async () => {
+    const result = await runWithMockApi([...createFilterArgs, ...argv]);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(result.requests, [{
+      path: "/api/v1/flows", method: "POST",
+      body: {
+        site_id: "site_x", name: "Leads",
+        trigger_config: { integrationId: "gravity-forms", ...(filters !== undefined && { filters }) },
+      },
+    }]);
+  });
+}
+
+for (const [command, args, method, apiPath] of [
+  ["create", createFilterArgs, "POST", "/api/v1/flows"],
+  ["update", ["flows", "update", "flow_x"], "PATCH", "/api/v1/flows/flow_x"],
+]) {
+  test(`flows ${command} passes filters objects unchanged for server validation`, async () => {
+    for (const filters of [publicFilters, {}, { match: "unsupported", list: [{ field: "future", op: "future", values: [{ name: "Demo", id: 12 }] }], extra: true }]) {
+      const result = await runWithMockApi([...args, "--filters-json", JSON.stringify(filters)]);
+      assert.equal(result.exitCode, 0, result.stderr);
+      const body = command === "create"
+        ? { site_id: "site_x", name: "Leads", trigger_config: { integrationId: "gravity-forms", filters } }
+        : { trigger_config: { filters } };
+      assert.deepEqual(result.requests, [{ path: apiPath, method, body }]);
+    }
+  });
+
+  test(`flows ${command} keeps --json request bodies unchanged`, async () => {
+    const body = { name: "New name", trigger_config: { integrationId: "typeform", filters: publicFilters } };
+    const result = await runWithMockApi(["flows", command, ...(command === "update" ? ["flow_x"] : []), "--json", JSON.stringify(body)]);
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.deepEqual(result.requests, [{ path: apiPath, method, body }]);
+  });
+
+  test(`flows ${command} refuses --json with --filters-json locally`, async () => {
+    const result = await runWithMockApi([...args, "--json", "{}", "--filters-json", JSON.stringify(publicFilters)]);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(result.requests, []);
+    assert.deepEqual(JSON.parse(result.stderr), { error: { code: "cli_error", message: "Use either --json or --filters-json, not both." } });
+  });
+
+  test(`flows ${command} refuses malformed JSON and non-object filters locally`, async () => {
+    for (const value of ["{", "null", "[]", "12", '"text"', "true", "false"]) {
+      const result = await runWithMockApi([...args, "--filters-json", value]);
+      assert.equal(result.exitCode, 1, value);
+      assert.equal(result.stdout, "");
+      assert.deepEqual(result.requests, []);
+      assert.deepEqual(JSON.parse(result.stderr), { error: { code: "cli_error", message: "--filters-json must be a JSON object." } });
+    }
+  });
+}
+
+for (const [flag, value] of [["pages", "/a"], ["except-pages", "/b"], ["form-ids", "12"], ["except-form-ids", "34"], ["match", "any"]]) {
+  test(`flows create refuses --filters-json with --${flag} locally`, async () => {
+    const result = await runWithMockApi([...createFilterArgs, "--filters-json", JSON.stringify(publicFilters), `--${flag}`, value]);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(result.requests, []);
+    assert.deepEqual(JSON.parse(result.stderr), { error: {
+      code: "cli_error",
+      message: "Use --filters-json on its own, without --pages, --except-pages, --form-ids, --except-form-ids or --match.",
+    } });
+  });
+}
+
+test("flows create refuses invalid --match values locally", async () => {
+  for (const value of ["ALL", "Any", "none", "true", "false", "0"]) {
+    const result = await runWithMockApi([...createFilterArgs, "--match", value]);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(result.requests, []);
+    assert.deepEqual(JSON.parse(result.stderr), { error: { code: "cli_error", message: "--match must be all or any." } });
+  }
+});
+
+test("filter flags require values, including --match", async () => {
+  for (const flag of ["pages", "except-pages", "form-ids", "except-form-ids", "match", "filters-json"]) {
+    const result = await runWithMockApi([...createFilterArgs, `--${flag}`]);
+    assert.equal(result.exitCode, 1);
+    assert.deepEqual(result.requests, []);
+    assert.equal(JSON.parse(result.stderr).error.code, "missing_flag_value");
+  }
+  const result = await runWithMockApi(["flows", "update", "flow_x", "--filters-json"]);
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(result.requests, []);
+  assert.equal(JSON.parse(result.stderr).error.code, "missing_flag_value");
+});
+
+test("flows get prints filters_summary from the API", async () => {
+  const response = { id: "flow_x", trigger_config: { integrationId: "gravity-forms", filters: publicFilters }, filters_summary: "Form ID: 12" };
+  const result = await runWithMockApi(["flows", "get", "flow_x"], response);
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(JSON.parse(result.stdout), response);
+  assert.deepEqual(result.requests, [{ path: "/api/v1/flows/flow_x", method: "GET", body: undefined }]);
+});
+
+test("filter_mixed refusal keeps the server code and message on stderr and exits 1", async () => {
+  const error = {
+    type: "invalid_request_error", code: "filter_mixed",
+    message: "Use either all filters or any filter. Mixing AND and OR is not supported yet.",
+    param: "trigger_config.filters",
+  };
+  const result = await runWithMockApi(["flows", "update", "flow_x", "--filters-json", JSON.stringify(publicFilters)], { error }, 400);
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.stdout, "");
+  assert.equal(result.requests.length, 1);
+  assert.deepEqual(JSON.parse(result.stderr), { error: { ...error, status: 400 } });
+});
+
+test("triggers options teaches a public filter using the returned field", async () => {
+  const response = { fields: [{ field: "event_type", values: [{ id: "12", name: "Demo" }] }] };
+  const result = await runWithMockApi(["triggers", "options", "calendly", "--site", "site_x"], response);
+  assert.equal(result.exitCode, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.fields, response.fields);
+  assert.match(output.next_step, /trigger_config\.filters/);
+  assert.doesNotMatch(output.next_step, /conditions/);
+  const example = output.next_step.match(/--filters-json '([^']+)'/);
+  assert.ok(example);
+  assert.deepEqual(JSON.parse(example[1]), { match: "all", list: [{ field: "event_type", op: "only", values: [{ id: "<id>" }] }] });
+});
+
+test("filter help documents the flags and public format", () => {
+  const create = COMMANDS["flows create"];
+  for (const flag of ["pages", "except-pages", "form-ids", "except-form-ids", "match", "filters-json"]) {
+    assert.ok(create.flags.includes(flag));
+    assert.ok(create.usage.includes(`--${flag}`));
+    assert.ok(create.help.includes(`--${flag}`));
+  }
+  const update = COMMANDS["flows update"];
+  assert.ok(update.flags.includes("filters-json"));
+  assert.match(update.usage, /--filters-json/);
+  assert.match(update.help, /trigger_config\.filters/);
+  assert.match(COMMANDS["triggers options"].help, /trigger_config\.filters/);
+  assert.doesNotMatch(COMMANDS["triggers options"].help, /conditions/);
 });
