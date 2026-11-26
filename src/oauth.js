@@ -59,7 +59,9 @@ export const LOGIN_SCOPES = [
   "destinations:disconnect",
   "events:read",
   "handoffs:create",
-  "internal_traffic:write",
+  // internal_traffic:write is NOT requested: the server dropped it from the
+  // DCR ceiling (24 Aug 2026), and a scope outside the ceiling would also
+  // stop the app showing the CLI's own login card.
 ].join(" ");
 
 // Generous on purpose: a brand-new user creates an account mid-login

@@ -101,7 +101,8 @@ test("login scopes stay inside the server's registration ceiling", () => {
     "flows:write",
     "destinations:disconnect",
     "handoffs:create",
-    "internal_traffic:write",
+    // Mirrors converly-frontend MCP_DCR_ALLOWED_SCOPES. internal_traffic:write
+    // left it on 24 Aug 2026.
   ]);
   for (const scope of LOGIN_SCOPES.split(" ")) {
     assert.ok(ceiling.has(scope), `scope ${scope} is outside the DCR ceiling`);

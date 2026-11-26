@@ -11,7 +11,7 @@ const OAUTH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src
 // Runs a whole browser login against a fake authorization server in a child
 // process (the config directory is fixed at import, so HOME must be set first)
 // and reports what the browser's callback request got back.
-function runLogin(tokenOk) {
+function runLogin(tokenOk, { blockSave = false } = {}) {
   const script = `
     import http from "node:http";
     const { loginFlow } = await import(${JSON.stringify(OAUTH)});
@@ -35,7 +35,9 @@ function runLogin(tokenOk) {
         const a = new URL(m[0]);
         const cb = new URL(a.searchParams.get("redirect_uri"));
         cb.searchParams.set("code", "c1"); cb.searchParams.set("state", a.searchParams.get("state"));
-        browser = fetch(cb, { redirect: "manual" }).then(async (r) => ({ status: r.status, location: r.headers.get("location"), body: await r.text() }));
+        // savedBeforeReply: were the credentials on disk when the browser got its answer?
+        browser = fetch(cb, { redirect: "manual" }).then(async (r) => ({ status: r.status, location: r.headers.get("location"),
+          savedBeforeReply: (await import("node:fs")).existsSync(${JSON.stringify("__CONFIG__")}), body: await r.text() }));
       }
     } }).then(() => "ok", (e) => "error: " + e.message);
     const outcome = await done;
@@ -44,7 +46,9 @@ function runLogin(tokenOk) {
     console.log(JSON.stringify({ outcome, origin, ...got }));
   `;
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "converly-login-"));
-  const r = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+  // A FILE where the config directory should be: saving the login fails.
+  if (blockSave) fs.writeFileSync(path.join(home, ".converly"), "not a directory");
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", script.replace("__CONFIG__", path.join(home, ".converly", "config.json"))], {
     env: { ...process.env, HOME: home, USERPROFILE: home, CONVERLY_API_KEY: "" },
     encoding: "utf8",
     timeout: 20000,
@@ -58,6 +62,14 @@ test("a successful browser login sends the browser to the app's logged-in page",
   assert.equal(r.outcome, "ok");
   assert.equal(r.status, 302);
   assert.equal(r.location, `${r.origin}/cli/logged-in`);
+  assert.equal(r.savedBeforeReply, true, "the browser heard success before the login was saved");
+});
+
+test("a login that can't be saved shows the error page, never the logged-in page", () => {
+  const r = runLogin(true, { blockSave: true });
+  assert.match(r.outcome, /^error:/);
+  assert.equal(r.status, 200);
+  assert.match(r.body, /couldn&#39;t save your login|couldn't save your login/);
 });
 
 test("a failed token exchange shows the error page, never the logged-in page", () => {
