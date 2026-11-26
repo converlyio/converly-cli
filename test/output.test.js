@@ -253,6 +253,31 @@ test("withReasons adds reason only next to known codes", () => {
   assert.equal(hasKnownReason({ actions: [{ error_code: "meta_unknown" }] }), false);
 });
 
+test("withReasons prefers the server's wording and turns its fix into a command", () => {
+  const out = withReasons(
+    {
+      actions: [
+        {
+          integration_id: "google-ads",
+          server_status: "failed",
+          error_code: "destination_not_connected",
+          user_message: "Google Ads isn't connected to this site, so Converly's server didn't send this conversion.",
+          hint: "Connect Google Ads to this site.",
+          fix: { action: "connect_destination", destination: "google-ads" },
+        },
+        { integration_id: "meta", server_status: "failed", error_code: "delivery_unavailable", user_message: "Problem on our side.", fix: { action: "contact_support", destination: "meta" } },
+      ],
+    },
+    { origin: STAGING_ORIGIN, site: "site_1" }
+  );
+  assert.equal(
+    out.actions[0].reason,
+    "Google Ads isn't connected to this site, so Converly's server didn't send this conversion. Connect Google Ads to this site. Run: converly destinations connect google-ads --site site_1 --staging"
+  );
+  assert.equal(out.actions[1].reason, "Problem on our side.");
+  assert.equal(hasKnownReason({ actions: [{ user_message: "x", error_code: "meta_unknown" }] }), true);
+});
+
 test("events get text shows each destination and its reason", () => {
   const out = formatResult(
     "events get",

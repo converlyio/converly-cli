@@ -185,17 +185,62 @@ export function hasKnownReason(event) {
   return Boolean(
     event &&
       Array.isArray(event.actions) &&
-      event.actions.some((a) => reasonFor(a?.error_code, a?.integration_id) !== null)
+      event.actions.some(
+        (a) =>
+          (typeof a?.user_message === "string" && a.user_message !== "") ||
+          reasonFor(a?.error_code, a?.integration_id) !== null
+      )
   );
 }
 
 /** Add a `reason` sentence next to every known error_code in an event. */
+// What the API's structured `fix` (or, from an older API, the code) means
+// as a CLI command. The wording itself comes from the server when it sends
+// some; the CLI's own sentences above are only the fallback for an API that
+// doesn't yet.
+const FIX_FOR_CODE = {
+  destination_not_connected: "connect_destination",
+  destination_needs_reconnect: "reconnect_destination",
+  conversion_not_set: "pick_conversion",
+  destination_paused: "contact_support",
+  delivery_unavailable: "contact_support",
+};
+
+export function fixCommand(fix, integrationId, { origin, site } = {}) {
+  if (typeof integrationId !== "string" || integrationId === "") return null;
+  const siteArg = site ? ` --site ${site}` : " --site <site_id>";
+  const dep = deploymentFlag(origin);
+  switch (fix) {
+    case "connect_destination":
+    case "reconnect_destination":
+      return `converly destinations connect ${integrationId}${siteArg}${dep}`;
+    case "pick_conversion":
+      return `converly destinations conversions ${integrationId}${siteArg}${dep}`;
+    default:
+      return null;
+  }
+}
+
+function serverReason(action, ctx) {
+  const text = [action.user_message, action.hint]
+    .filter((t) => typeof t === "string" && t.trim() !== "")
+    .join(" ");
+  if (!text) return null;
+  const fix = action.fix && typeof action.fix === "object" ? action.fix : null;
+  const destination = (fix && typeof fix.destination === "string" && fix.destination) || action.integration_id;
+  const command = fixCommand(fix ? fix.action : FIX_FOR_CODE[action.error_code], destination, ctx);
+  return command ? `${text} Run: ${command}` : text;
+}
+
 export function withReasons(event, { origin, site } = {}) {
   if (!event || typeof event !== "object" || !Array.isArray(event.actions)) return event;
   return {
     ...event,
     actions: event.actions.map((a) => {
-      const reason = reasonFor(a?.error_code, a?.integration_id, { origin, site });
+      if (!a || typeof a !== "object") return a;
+      const reason =
+        serverReason(a, { origin, site }) ??
+        reasonFor(a.error_code, a.integration_id, { origin, site });
       return reason ? { ...a, reason } : a;
     }),
   };
