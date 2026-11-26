@@ -870,6 +870,17 @@ test("install snippet passes install_guides through and points the next step at 
   assert.match(result.next_step, /install_guides/);
 });
 
+test("install snippet from an older server without install_guides doesn't mention the field", async () => {
+  const { exitCode, out } = await spawnAgainstLocalServer(
+    ["install", "snippet", "site_abc"],
+    { snippet: "<script></script>", site_key: "site_k" }
+  );
+  assert.equal(exitCode, 0);
+  const result = JSON.parse(out);
+  assert.doesNotMatch(result.next_step, /install_guides/);
+  assert.match(result.next_step, /hand it to the user/);
+});
+
 test("destinations types passes requires_connection through", async () => {
   const { exitCode, out } = await spawnAgainstLocalServer(
     ["destinations", "types"],

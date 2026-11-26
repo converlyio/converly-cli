@@ -53,12 +53,19 @@ export async function snippet({ args, origin }) {
   );
   // Retrieval is not installation — mirror the handoff commands'
   // next_step pattern so an agent knows the job isn't done yet.
+  // Older servers don't return install_guides; only point at the field
+  // when it is actually there.
+  const guideHint = Array.isArray(result?.install_guides)
+    ? "hand it to the user with the guide from install_guides that matches " +
+      "their website platform"
+    : "hand it to the user";
   return {
     ...result,
     next_step:
       "Add this tag to the website's <head> (do it yourself if you have " +
-      "repo access, otherwise hand it to the user with the guide from " +
-      "install_guides that matches their website platform; site builders " +
+      "repo access, otherwise " +
+      guideHint +
+      "; site builders " +
       "need a republish before it is live). Then load any page of the site once " +
       "in a real browser (you can do this yourself if you have browser " +
       "tools) and verify with `converly install status " +
