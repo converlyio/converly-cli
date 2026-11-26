@@ -200,8 +200,8 @@ export function hasKnownReason(event) {
 // doesn't yet.
 const FIX_FOR_CODE = {
   destination_not_connected: "connect_destination",
-  destination_needs_reconnect: "reconnect_destination",
-  conversion_not_set: "pick_conversion",
+  destination_needs_reconnect: "connect_destination",
+  conversion_not_set: "choose_conversion",
   destination_paused: "contact_support",
   delivery_unavailable: "contact_support",
 };
@@ -210,11 +210,12 @@ export function fixCommand(fix, integrationId, { origin, site } = {}) {
   if (typeof integrationId !== "string" || integrationId === "") return null;
   const siteArg = site ? ` --site ${site}` : " --site <site_id>";
   const dep = deploymentFlag(origin);
+  // Steps from the API's fix.step (delivery-error-copy.ts). edit_flow_action
+  // and contact_support have no single command, so the text stands alone.
   switch (fix) {
     case "connect_destination":
-    case "reconnect_destination":
       return `converly destinations connect ${integrationId}${siteArg}${dep}`;
-    case "pick_conversion":
+    case "choose_conversion":
       return `converly destinations conversions ${integrationId}${siteArg}${dep}`;
     default:
       return null;
@@ -226,9 +227,14 @@ function serverReason(action, ctx) {
     .filter((t) => typeof t === "string" && t.trim() !== "")
     .join(" ");
   if (!text) return null;
+  // fix is { step, destination: "dest_<slug>" | null } or null.
   const fix = action.fix && typeof action.fix === "object" ? action.fix : null;
-  const destination = (fix && typeof fix.destination === "string" && fix.destination) || action.integration_id;
-  const command = fixCommand(fix ? fix.action : FIX_FOR_CODE[action.error_code], destination, ctx);
+  const fromFix =
+    fix && typeof fix.destination === "string" && fix.destination.startsWith("dest_")
+      ? fix.destination.slice("dest_".length)
+      : null;
+  const destination = fromFix || action.integration_id;
+  const command = fixCommand(fix ? fix.step : FIX_FOR_CODE[action.error_code], destination, ctx);
   return command ? `${text} Run: ${command}` : text;
 }
 

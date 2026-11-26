@@ -263,9 +263,9 @@ test("withReasons prefers the server's wording and turns its fix into a command"
           error_code: "destination_not_connected",
           user_message: "Google Ads isn't connected to this site, so Converly's server didn't send this conversion.",
           hint: "Connect Google Ads to this site.",
-          fix: { action: "connect_destination", destination: "google-ads" },
+          fix: { step: "connect_destination", destination: "dest_google-ads" },
         },
-        { integration_id: "meta", server_status: "failed", error_code: "delivery_unavailable", user_message: "Problem on our side.", fix: { action: "contact_support", destination: "meta" } },
+        { integration_id: "meta", server_status: "failed", error_code: "delivery_unavailable", user_message: "Problem on our side.", fix: { step: "contact_support", destination: "dest_meta" } },
       ],
     },
     { origin: STAGING_ORIGIN, site: "site_1" }
@@ -275,6 +275,13 @@ test("withReasons prefers the server's wording and turns its fix into a command"
     "Google Ads isn't connected to this site, so Converly's server didn't send this conversion. Connect Google Ads to this site. Run: converly destinations connect google-ads --site site_1 --staging"
   );
   assert.equal(out.actions[1].reason, "Problem on our side.");
+  // choose_conversion, a null destination (falls back to the action's), and no command for edit_flow_action
+  const more = withReasons({ actions: [
+    { integration_id: "linkedin-ads", error_code: "conversion_not_set", user_message: "Pick a conversion.", fix: { step: "choose_conversion", destination: null } },
+    { integration_id: "meta", error_code: "x", user_message: "Edit the flow.", fix: { step: "edit_flow_action", destination: "dest_meta" } },
+  ] }, { origin: PROD_ORIGIN, site: "site_2" });
+  assert.equal(more.actions[0].reason, "Pick a conversion. Run: converly destinations conversions linkedin-ads --site site_2");
+  assert.equal(more.actions[1].reason, "Edit the flow.");
   assert.equal(hasKnownReason({ actions: [{ user_message: "x", error_code: "meta_unknown" }] }), true);
 });
 
