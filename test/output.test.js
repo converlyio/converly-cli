@@ -112,6 +112,28 @@ test("status text: checklist with commands, no API paths", () => {
   assert.doesNotMatch(out, /PATCH|POST/);
 });
 
+test("status text names platforms and adds --staging to every command", () => {
+  const out = formatResult(
+    "status",
+    {
+      site_id: "site_abc",
+      items: [
+        {
+          id: "destination_connections",
+          status: "action_needed",
+          what_and_why: "A flow sends conversions to google-ads, but google-ads isn't connected.",
+          command: "converly destinations connect google-ads --site site_abc",
+        },
+        { id: "flows", status: "action_needed", what_and_why: "Draft.", command: "converly flows validate <flow_id>, then converly flows publish <flow_id>" },
+      ],
+    },
+    { mode: "text", origin: STAGING_ORIGIN, stream: pipe }
+  );
+  assert.match(out, /sends conversions to Google Ads, but Google Ads isn't connected/);
+  assert.match(out, /Run: converly destinations connect google-ads --site site_abc --staging/);
+  assert.match(out, /converly flows validate <flow_id> --staging, then converly flows publish <flow_id> --staging/);
+});
+
 test("stripApiSentences keeps the question and drops the request", () => {
   assert.equal(
     stripApiSentences("Which tool renders the form? Then create the flow via POST /v1/flows."),

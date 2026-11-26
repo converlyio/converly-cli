@@ -120,7 +120,7 @@ export async function status({ args, flags, origin }) {
       case "trigger_connection":
         return slug ? `converly triggers connect ${slug} --site ${siteId}` : null;
       case "first_conversion":
-        return "converly test-event --flow <flow_id>, or submit the real form and check converly events list";
+        return `submit the real form once, then converly events list --site ${siteId}`;
       default:
         return null;
     }

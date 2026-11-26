@@ -122,6 +122,23 @@ export function destinationName(slug) {
   return DESTINATION_NAMES[slug] ?? slug;
 }
 
+// "A flow sends conversions to google-ads, but google-ads isn't connected"
+// reads better with the platform's name. Only the "to X" / "but X" shapes
+// the setup checklist uses are touched, so a slug inside a command is left as is.
+const SLUG_IN_PROSE = new RegExp(
+  `\\b(to|but) (${Object.keys(DESTINATION_NAMES).map((k) => k.replace(/-/g, "\\-")).join("|")})(?![\\w-])`,
+  "g"
+);
+function proseNames(text) {
+  return typeof text === "string" ? text.replace(SLUG_IN_PROSE, (_, w, slug) => `${w} ${destinationName(slug)}`) : text;
+}
+
+/** Point every `converly ...` command in a suggestion at the same deployment. */
+function withDeployment(command, origin) {
+  const dep = deploymentFlag(origin);
+  return dep ? command.replace(/converly [^,]*/g, (c) => c.trimEnd() + dep) : command;
+}
+
 /**
  * A plain sentence for an action's error_code, or null when the code is
  * unknown (the code itself is still shown). `site` is the site id when the
@@ -195,7 +212,7 @@ function renderStatus(result, { origin, color }) {
   const lines = [bold("Setup checklist", color) + dim(`  site ${result?.site_id ?? ""}`, color), ""];
   for (const item of items) {
     const [mark, tint] = STATUS_MARKS[item.status] ?? ["•", (t) => t];
-    lines.push(`${tint(mark, color)} ${stripApiSentences(item.what_and_why)}`);
+    lines.push(`${tint(mark, color)} ${proseNames(stripApiSentences(item.what_and_why))}`);
     const next = item.next;
     if (item.status !== "done" && next) {
       if (next.kind === "ask_the_user" && next.question) {
@@ -207,7 +224,7 @@ function renderStatus(result, { origin, color }) {
       }
     }
     if (item.command) {
-      lines.push(`    Run: ${bold(item.command + deploymentFlag(origin), color)}`);
+      lines.push(`    Run: ${bold(withDeployment(item.command, origin), color)}`);
     }
     lines.push("");
   }
