@@ -773,14 +773,14 @@ test("login requests the create scope (or create-conversion is dead on arrival)"
 
 // Runs the real binary against a local server and records every request
 // path it receives, so the test sees exactly what reached the wire.
-async function spawnAgainstLocalServer(cliArgs) {
+async function spawnAgainstLocalServer(cliArgs, responseBody = { ok: true }) {
   const requests = [];
   const srv = http.createServer((req, res) => {
     requests.push(req.url);
     req.on("data", () => {});
     req.on("end", () => {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
+      res.end(JSON.stringify(responseBody));
     });
   });
   await new Promise((r) => srv.listen(0, "127.0.0.1", r));
@@ -797,10 +797,12 @@ async function spawnAgainstLocalServer(cliArgs) {
     { env: { ...process.env, CONVERLY_API_KEY: "sk_live_dummy" } }
   );
   let err = "";
+  let out = "";
   child.stderr.on("data", (d) => (err += d));
+  child.stdout.on("data", (d) => (out += d));
   const exitCode = await new Promise((r) => child.on("close", r));
   srv.close();
-  return { exitCode, err, requests };
+  return { exitCode, err, out, requests };
 }
 
 test("destinations list --site sends site_id", async () => {
@@ -849,4 +851,30 @@ test("destinations list/get still reject an unknown flag (no request sent)", asy
     assert.match(p.message, /--site/);
     assert.deepEqual(requests, []);
   }
+});
+
+// --- 26 Nov 2026 MCP/CLI release: new fields reach the CLI's output ---
+
+test("install snippet passes install_guides through and points the next step at them", async () => {
+  const guides = [
+    { platform: "Google Tag Manager", url: "https://help.converly.io/installing-converly/install-on-google-tag-manager" },
+    { platform: "Other platforms", url: "https://help.converly.io/installing-converly/install-converly" },
+  ];
+  const { exitCode, out } = await spawnAgainstLocalServer(
+    ["install", "snippet", "site_abc"],
+    { snippet: "<script></script>", site_key: "site_k", install_guides: guides }
+  );
+  assert.equal(exitCode, 0);
+  const result = JSON.parse(out);
+  assert.deepEqual(result.install_guides, guides);
+  assert.match(result.next_step, /install_guides/);
+});
+
+test("destinations types passes requires_connection through", async () => {
+  const { exitCode, out } = await spawnAgainstLocalServer(
+    ["destinations", "types"],
+    { data: [{ type: "meta", connection_types: ["oauth"], requires_connection: true }] }
+  );
+  assert.equal(exitCode, 0);
+  assert.equal(JSON.parse(out).data[0].requires_connection, true);
 });

@@ -57,8 +57,9 @@ export async function snippet({ args, origin }) {
     ...result,
     next_step:
       "Add this tag to the website's <head> (do it yourself if you have " +
-      "repo access, otherwise hand it to the user; site builders need a " +
-      "republish before it is live). Then load any page of the site once " +
+      "repo access, otherwise hand it to the user with the guide from " +
+      "install_guides that matches their website platform; site builders " +
+      "need a republish before it is live). Then load any page of the site once " +
       "in a real browser (you can do this yourself if you have browser " +
       "tools) and verify with `converly install status " +
       args[0] +
