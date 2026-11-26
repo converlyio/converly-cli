@@ -225,12 +225,10 @@ main{text-align:center;max-width:28rem;padding:0 1rem}h1{font-size:1.4rem}p{colo
 <body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></main></body></html>`;
 }
 
-// Deliberately neutral: the token exchange hasn't happened yet when this
-// renders, so this page must not claim the login succeeded.
-const RETURN_PAGE = page(
-  "Almost done",
-  "Return to the terminal to finish logging in. You can close this tab."
-);
+/** Where the browser goes once the login has really worked: the app's own page. */
+export function loggedInUrl(origin) {
+  return new URL("/cli/logged-in", origin).toString();
+}
 
 /**
  * Wait for the one OAuth redirect that carries our state value.
@@ -307,7 +305,25 @@ function waitForCallback(server, expectedState) {
         );
         return;
       }
-      finish(RETURN_PAGE, () => resolve({ code }));
+      // Success: hold the browser's request open until the token exchange
+      // has finished, so the page it ends on tells the truth. The caller
+      // answers through `reply` exactly once.
+      settled = true;
+      clearTimeout(timer);
+      let answered = false;
+      const answer = (status, headers, body) => {
+        if (answered) return;
+        answered = true;
+        res.writeHead(status, { "Cache-Control": "no-store", ...headers }).end(body);
+      };
+      resolve({
+        code,
+        reply: {
+          redirect: (location) => answer(302, { Location: location }, ""),
+          page: (title, body) =>
+            answer(200, { "Content-Type": "text/html; charset=utf-8" }, page(title, body)),
+        },
+      });
     });
   });
 }
@@ -378,6 +394,8 @@ export async function loginFlow({
   const doc = await discover(origin);
 
   const server = http.createServer();
+  // The browser's held callback request, answered once the login is settled.
+  let reply = null;
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -412,16 +430,23 @@ export async function loginFlow({
     progress(`If a browser doesn't open, visit:\n\n  ${authorizeUrl}\n`);
     if (!noOpen) openBrowser(authorizeUrl.toString());
 
-    const { code } = await callback;
+    const { code, reply: browserReply } = await callback;
+    reply = browserReply;
     progress("Exchanging the authorization code for credentials...");
 
-    const tokens = await exchangeToken(doc.token_endpoint, {
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri,
-      client_id: clientId,
-      code_verifier: verifier,
-    });
+    let tokens;
+    try {
+      tokens = await exchangeToken(doc.token_endpoint, {
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        code_verifier: verifier,
+      });
+    } catch (err) {
+      reply.page("Login didn't complete", `${err.message} Run converly login again.`);
+      throw err;
+    }
     const creds = credsFromTokens(clientId, tokens, LOGIN_SCOPES);
     // Tag this login session. A refresh preserves the generation; a NEW
     // login (possibly a different account) gets a new one. In-flight
@@ -429,7 +454,13 @@ export async function loginFlow({
     // a write replay under a different account's token.
     creds.login_generation = b64url(crypto.randomBytes(8));
     // A deliberate login selects this origin as the default deployment.
-    setStoredCredentials(origin, creds, { makeDefault: true });
+    try {
+      setStoredCredentials(origin, creds, { makeDefault: true });
+    } catch (err) {
+      reply.page("Login didn't complete", "The CLI couldn't save your login on this computer.");
+      throw err;
+    }
+    reply.redirect(loggedInUrl(origin));
     return {
       origin,
       scope: creds.scope,
@@ -437,6 +468,9 @@ export async function loginFlow({
       has_refresh_token: Boolean(creds.refresh_token),
     };
   } finally {
+    // Never leave the browser waiting: anything that failed without answering
+    // it gets the plain error page (a no-op once it has been answered).
+    if (reply) reply.page("Login didn't complete", "Something went wrong. Run converly login again.");
     server.close();
   }
 }
