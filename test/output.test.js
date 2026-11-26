@@ -8,6 +8,7 @@ import fs from "node:fs";
 
 import {
   resolveOutputMode,
+  resolveErrorMode,
   formatResult,
   formatError,
   cliSpeak,
@@ -45,6 +46,38 @@ test("output mode: a known agent harness keeps JSON even in a pseudo-terminal", 
   assert.equal(resolveOutputMode({}, tty, { CLAUDECODE: "" }), "text");
   // An explicit request still wins.
   assert.equal(resolveOutputMode({ output: "text" }, tty, { CLAUDECODE: "1" }), "text");
+});
+
+test("errors stay JSON unless both stdout and stderr are terminals", () => {
+  assert.equal(resolveErrorMode({}, tty, tty, noEnv), "text");
+  assert.equal(resolveErrorMode({}, tty, pipe, noEnv), "json", "2>err.json keeps JSON");
+  assert.equal(resolveErrorMode({}, pipe, tty, noEnv), "json");
+  assert.equal(resolveErrorMode({ output: "text" }, pipe, pipe, noEnv), "text");
+  assert.equal(resolveErrorMode({}, tty, tty, { CLAUDECODE: "1" }), "json");
+});
+
+test("events get text skips null actions instead of crashing", () => {
+  const out = formatResult(
+    "events get",
+    { id: "evt_1", status: "failed", actions: [null, { integration_id: "meta", server_status: "success" }] },
+    { mode: "text", origin: PROD_ORIGIN, stream: pipe }
+  );
+  assert.match(out, /✓ Meta: success/);
+});
+
+test("no reason (and no 'undefined' command) without a destination id", () => {
+  assert.equal(reasonFor("destination_not_connected", undefined), null);
+  const out = withReasons({ actions: [{ server_status: "failed", error_code: "destination_not_connected" }] });
+  assert.equal("reason" in out.actions[0], false);
+});
+
+test("first-conversion step says to submit the real form first", () => {
+  const out = formatResult(
+    "status",
+    { site_id: "s", items: [{ id: "first_conversion", status: "action_needed", what_and_why: "No conversions yet.", command: "converly events list --site s" }] },
+    { mode: "text", origin: STAGING_ORIGIN, stream: pipe }
+  );
+  assert.match(out, /Submit the real form once, then run: converly events list --site s --staging/);
 });
 
 test("json mode is byte-identical to the old output for every command", () => {

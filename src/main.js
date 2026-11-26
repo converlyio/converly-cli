@@ -24,6 +24,7 @@ import {
   formatError,
   formatResult,
   resolveOutputMode,
+  resolveErrorMode,
   translateError,
 } from "./output.js";
 
@@ -474,8 +475,9 @@ export async function main(argv) {
 
   // Sentences in a terminal, JSON for agents and scripts (see output.js).
   const mode = resolveOutputMode(flags);
+  const errorMode = resolveErrorMode(flags);
   const fail = (payload) => {
-    process.stderr.write(formatError(payload, { mode }));
+    process.stderr.write(formatError(payload, { mode: errorMode }));
     process.exitCode = 1;
   };
 
@@ -685,7 +687,9 @@ export async function main(argv) {
     }
     const payload = {
       error: translateError(error, {
-        commandFlags: match.def.flags,
+        // With --json the body carries every field, so naming a flag
+        // (--site for site_id) would suggest a fix that changes nothing.
+        commandFlags: flags.json !== undefined ? [] : match.def.flags,
         origin: errorOrigin,
       }),
     };

@@ -44,6 +44,20 @@ export function resolveOutputMode(flags, stream = process.stdout, env = process.
   return stream && stream.isTTY ? "text" : "json";
 }
 
+/**
+ * Errors go to stderr, so a terminal on stdout alone isn't enough: a script
+ * that captures stderr (`converly status 2>err.json`) must still get JSON.
+ * Text only when the person asked for it, or when both streams are terminals.
+ */
+export function resolveErrorMode(flags, stdout = process.stdout, stderr = process.stderr, env = process.env) {
+  const asked = typeof flags.output === "string" ? flags.output.toLowerCase() : null;
+  const fromEnv = typeof env.CONVERLY_OUTPUT === "string" ? env.CONVERLY_OUTPUT.toLowerCase() : null;
+  if (asked === "json" || asked === "text") return asked;
+  if (fromEnv === "json" || fromEnv === "text") return fromEnv;
+  if (isAgentEnvironment(env)) return "json";
+  return stdout && stdout.isTTY && stderr && stderr.isTTY ? "text" : "json";
+}
+
 // ---------------------------------------------------------------------------
 // Small text helpers
 
@@ -145,13 +159,14 @@ function withDeployment(command, origin) {
  * caller knows it, so the suggested command is copy-pasteable.
  */
 export function reasonFor(errorCode, integrationId, { origin, site } = {}) {
-  if (!errorCode) return null;
+  // Without the destination there's no honest command to suggest.
+  if (!errorCode || typeof integrationId !== "string" || integrationId === "") return null;
   const name = destinationName(integrationId);
   const siteArg = site ? ` --site ${site}` : " --site <site_id>";
   const dep = deploymentFlag(origin);
   switch (errorCode) {
     case "destination_not_connected":
-      return `${name} isn't connected to this site, so Converly had nowhere to send it. Connect it with: converly destinations connect ${integrationId}${siteArg}${dep}`;
+      return `${name} isn't connected to this site, so Converly's server couldn't send it. Connect it with: converly destinations connect ${integrationId}${siteArg}${dep}`;
     case "destination_needs_reconnect":
       return `${name}'s connection stopped working and needs to be reconnected. Reconnect it with: converly destinations connect ${integrationId}${siteArg}${dep}`;
     case "conversion_not_set":
@@ -224,7 +239,8 @@ function renderStatus(result, { origin, color }) {
       }
     }
     if (item.command) {
-      lines.push(`    Run: ${bold(withDeployment(item.command, origin), color)}`);
+      const run = item.id === "first_conversion" ? "Submit the real form once, then run" : "Run";
+      lines.push(`    ${run}: ${bold(withDeployment(item.command, origin), color)}`);
     }
     lines.push("");
   }
@@ -278,6 +294,7 @@ function renderEvent(result, { color }) {
   const actions = Array.isArray(result?.actions) ? result.actions : [];
   if (actions.length > 0) lines.push("");
   for (const a of actions) {
+    if (!a || typeof a !== "object") continue;
     const status = a.server_status ?? a.client_status ?? "unknown";
     const ok = status === "success" || status === "sent";
     const failed = status === "failed";

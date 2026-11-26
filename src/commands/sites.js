@@ -120,7 +120,9 @@ export async function status({ args, flags, origin }) {
       case "trigger_connection":
         return slug ? `converly triggers connect ${slug} --site ${siteId}` : null;
       case "first_conversion":
-        return `submit the real form once, then converly events list --site ${siteId}`;
+        // Runnable as-is: an agent may execute this field. The step before
+        // it (submit the real form once) is in what_and_why.
+        return `converly events list --site ${siteId}`;
       default:
         return null;
     }
