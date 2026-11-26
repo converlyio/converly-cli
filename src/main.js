@@ -2,7 +2,9 @@
  * Converly CLI entry point.
  *
  * Contract with callers (humans and AI agents):
- * - stdout is ALWAYS a single JSON document (the result).
+ * - When stdout is not a terminal, stdout is ALWAYS a single JSON document
+ *   (the result). In a terminal a few commands print sentences instead;
+ *   `--output json` restores JSON there (see output.js).
  * - Human-facing progress goes to stderr.
  * - Exit 0 on success, 1 on any failure, with a JSON error on stderr.
  */
@@ -17,6 +19,13 @@ import * as flows from "./commands/flows.js";
 import * as triggers from "./commands/triggers.js";
 import * as events from "./commands/events.js";
 import * as misc from "./commands/misc.js";
+import {
+  OUTPUT_MODES,
+  formatError,
+  formatResult,
+  resolveOutputMode,
+  translateError,
+} from "./output.js";
 
 const require = createRequire(import.meta.url);
 const { version: VERSION } = require("../package.json");
@@ -134,6 +143,7 @@ const GLOBAL_FLAGS = new Set([
   "idempotency-key",
   "no-open",
   "yes",
+  "output",
 ]);
 
 /**
@@ -402,10 +412,13 @@ function overviewHelp() {
   const lines = [
     `Converly CLI v${VERSION} — conversion tracking for ad platforms.`,
     "",
-    "Every data command prints one JSON document to stdout (help and",
-    "version print text). Global flags: --staging (staging deployment),",
-    "--api <origin> (custom deployment), --idempotency-key <key> (pin the",
-    "key for a POST so an explicit retry can't double-create).",
+    "Output: when stdout is piped (agents, scripts) every data command",
+    "prints one JSON document to stdout and errors as JSON on stderr. In a",
+    "terminal, login, status, whoami, events get and errors print plain",
+    "sentences instead. --output json|text forces either (env",
+    "CONVERLY_OUTPUT works too). Other global flags: --staging (staging",
+    "deployment), --api <origin> (custom deployment), --idempotency-key",
+    "<key> (pin the key for a POST so an explicit retry can't double-create).",
     "Auth: `converly login`, or set CONVERLY_API_KEY for headless use.",
     "",
     "Before building, get three facts from the user (or the repo): the",
@@ -459,6 +472,13 @@ export function matchCommand(args) {
 export async function main(argv) {
   const { args, flags, missingValueFlags, invalidBooleanFlags } = parseArgv(argv);
 
+  // Sentences in a terminal, JSON for agents and scripts (see output.js).
+  const mode = resolveOutputMode(flags);
+  const fail = (payload) => {
+    process.stderr.write(formatError(payload, { mode }));
+    process.exitCode = 1;
+  };
+
   if (flags.version || args[0] === "version") {
     process.stdout.write(`${VERSION}\n`);
     return;
@@ -475,19 +495,14 @@ export async function main(argv) {
 
   const match = matchCommand(args);
   if (!match) {
-    process.stderr.write(
-      JSON.stringify(
+    fail(
         {
           error: {
             code: "unknown_command",
             message: `Unknown command: ${args.join(" ")}. Run \`converly help\`.`,
           },
-        },
-        null,
-        2
-      ) + "\n"
+        }
     );
-    process.exitCode = 1;
     return;
   }
 
@@ -503,8 +518,7 @@ export async function main(argv) {
             .map((n) => `--${n}`)
             .join(", ")}, plus the global ${globalList}.`
         : `\`converly ${match.name}\` takes no flags of its own, just the global ${globalList}.`;
-    process.stderr.write(
-      JSON.stringify(
+    fail(
         {
           error: {
             code: "unknown_flag",
@@ -512,12 +526,8 @@ export async function main(argv) {
               .map((n) => `--${n}`)
               .join(", ")}. ${valid}`,
           },
-        },
-        null,
-        2
-      ) + "\n"
+        }
     );
-    process.exitCode = 1;
     return;
   }
 
@@ -527,8 +537,7 @@ export async function main(argv) {
   // rejected above; boolean flags never appear here.)
   const realMissing = (missingValueFlags ?? []).filter((n) => allowed.has(n));
   if (realMissing.length > 0) {
-    process.stderr.write(
-      JSON.stringify(
+    fail(
         {
           error: {
             code: "missing_flag_value",
@@ -536,12 +545,8 @@ export async function main(argv) {
               .map((n) => `--${n}`)
               .join(", ")} need${realMissing.length > 1 ? "" : "s"} a value, e.g. \`--${realMissing[0]} <value>\`.`,
           },
-        },
-        null,
-        2
-      ) + "\n"
+        }
     );
-    process.exitCode = 1;
     return;
   }
 
@@ -552,8 +557,7 @@ export async function main(argv) {
     allowed.has(f.name)
   );
   if (realInvalidBool.length > 0) {
-    process.stderr.write(
-      JSON.stringify(
+    fail(
         {
           error: {
             code: "invalid_flag_value",
@@ -561,12 +565,21 @@ export async function main(argv) {
               .map((f) => `--${f.name}=${f.value}`)
               .join(", ")} only accept${realInvalidBool.length > 1 ? "" : "s"} true or false.`,
           },
-        },
-        null,
-        2
-      ) + "\n"
+        }
     );
-    process.exitCode = 1;
+    return;
+  }
+
+  if (
+    flags.output !== undefined &&
+    !OUTPUT_MODES.includes(String(flags.output).toLowerCase())
+  ) {
+    fail({
+      error: {
+        code: "invalid_flag_value",
+        message: `--output takes json or text, not "${flags.output}".`,
+      },
+    });
     return;
   }
 
@@ -577,8 +590,7 @@ export async function main(argv) {
   const maxArgs = COMMAND_MAX_ARGS[match.name] ?? 0;
   if (match.rest.length > maxArgs) {
     const extra = match.rest.slice(maxArgs);
-    process.stderr.write(
-      JSON.stringify(
+    fail(
         {
           error: {
             code: "unexpected_argument",
@@ -587,12 +599,8 @@ export async function main(argv) {
               `${extra.map((a) => JSON.stringify(a)).join(", ")}. ` +
               `Usage: ${match.def.usage}`,
           },
-        },
-        null,
-        2
-      ) + "\n"
+        }
     );
-    process.exitCode = 1;
     return;
   }
 
@@ -604,7 +612,7 @@ export async function main(argv) {
       setDefaultIdempotencyKey(flags["idempotency-key"]);
     }
     const result = await match.def.run({ args: match.rest, flags, origin });
-    process.stdout.write(JSON.stringify(result ?? { ok: true }, null, 2) + "\n");
+    process.stdout.write(formatResult(match.name, result, { mode, origin }));
   } catch (err) {
     // Two upstream error shapes exist: the /v1 envelope ({error: {code,
     // message, …}}) and delivery pass-throughs where `error` is a bare
@@ -667,9 +675,21 @@ export async function main(argv) {
       // Force our check-state hint over any server-supplied one.
       if (err.retryHint) error.hint = err.retryHint;
     }
-    const payload = { error };
+    // Say it the way a CLI user types it: --allow-real, not
+    // allow_real_conversion; `converly login --staging` on staging.
+    let errorOrigin = null;
+    try {
+      errorOrigin = resolveOrigin(flags);
+    } catch {
+      // A malformed --api is the error being reported; leave wording alone.
+    }
+    const payload = {
+      error: translateError(error, {
+        commandFlags: match.def.flags,
+        origin: errorOrigin,
+      }),
+    };
     if (err.handoff) payload.handoff = err.handoff;
-    process.stderr.write(JSON.stringify(payload, null, 2) + "\n");
-    process.exitCode = 1;
+    fail(payload);
   }
 }

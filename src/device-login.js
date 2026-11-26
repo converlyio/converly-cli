@@ -214,7 +214,7 @@ export async function deviceLoginFlow({ origin, label, progress = () => {} }) {
     // it to change is futile. Tell the user to update rather than spin.
     throw new Error(
       `Device login returned an unexpected status "${status ?? "(none)"}". ` +
-        "Update the CLI (npm install -g converly) and try again."
+        "Update the CLI (npm install -g @converly/cli) and try again."
     );
   }
   throw new Error(
