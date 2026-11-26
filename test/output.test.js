@@ -74,10 +74,10 @@ test("no reason (and no 'undefined' command) without a destination id", () => {
 test("first-conversion step says to submit the real form first", () => {
   const out = formatResult(
     "status",
-    { site_id: "s", items: [{ id: "first_conversion", status: "action_needed", what_and_why: "No conversions yet.", command: "converly events list --site s" }] },
+    { site_id: "s", items: [{ id: "first_conversion", status: "action_needed", what_and_why: "No conversions yet.", before_running: "Submit the real form on the website once.", command: "converly events list --site s" }] },
     { mode: "text", origin: STAGING_ORIGIN, stream: pipe }
   );
-  assert.match(out, /Submit the real form once, then run: converly events list --site s --staging/);
+  assert.match(out, /First: Submit the real form on the website once\.\n {4}Then run: converly events list --site s --staging/);
 });
 
 test("json mode is byte-identical to the old output for every command", () => {
@@ -195,6 +195,19 @@ test("whoami text doesn't say trial twice for the trial plan", () => {
     { mode: "text", origin: PROD_ORIGIN, stream: pipe }
   );
   assert.match(out, /Plan:  Free trial until 10 Dec 2026/);
+});
+
+test("whoami keeps a named plan's tier while trialing", () => {
+  const out = formatResult(
+    "whoami",
+    { subscription: { plan_name: "Enterprise Trial", status: "trialing", trial_ends_at: "2026-12-10T00:00:00Z" }, sites: [] },
+    { mode: "text", origin: PROD_ORIGIN, stream: pipe }
+  );
+  assert.match(out, /Plan:  Enterprise Trial, free trial until 10 Dec 2026/);
+});
+
+test("a date-only ISO error is left alone", () => {
+  assert.equal(cliSpeak("start must be an ISO 8601 date", {}), "start must be an ISO 8601 date");
 });
 
 test("cliSpeak shows the date shape instead of saying ISO 8601", () => {

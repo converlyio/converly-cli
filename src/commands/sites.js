@@ -120,8 +120,8 @@ export async function status({ args, flags, origin }) {
       case "trigger_connection":
         return slug ? `converly triggers connect ${slug} --site ${siteId}` : null;
       case "first_conversion":
-        // Runnable as-is: an agent may execute this field. The step before
-        // it (submit the real form once) is in what_and_why.
+        // Runnable as-is: an agent may execute this field. The person's
+        // step that has to come first rides alongside in before_running.
         return `converly events list --site ${siteId}`;
       default:
         return null;
@@ -132,7 +132,10 @@ export async function status({ args, flags, origin }) {
     items: (result.items ?? []).map((item) => {
       const command =
         item.status === "action_needed" ? commandFor(item) : null;
-      return command ? { ...item, command } : item;
+      if (!command) return item;
+      return item.id === "first_conversion"
+        ? { ...item, before_running: "Submit the real form on the website once.", command }
+        : { ...item, command };
     }),
   };
 }
