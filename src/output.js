@@ -225,7 +225,9 @@ function describeSubscription(sub) {
   const plan = sub.plan_name ?? sub.plan_id ?? "Unknown plan";
   if (sub.status === "trialing") {
     const ends = formatDate(sub.trial_ends_at);
-    return `${plan}, free trial${ends ? ` until ${ends}` : ""}`;
+    const until = ends ? ` until ${ends}` : "";
+    // The trial plan is itself called "14-day Trial"; don't say trial twice.
+    return /trial/i.test(plan) ? `Free trial${until}` : `${plan}, free trial${until}`;
   }
   if (sub.status === "active") {
     return sub.cancel_at_period_end
@@ -328,6 +330,11 @@ export function cliSpeak(text, { commandFlags = [], origin } = {}) {
     out = out.replace(new RegExp(`\\b${field}\\s*[:=]\\s*true\\b`, "g"), `--${flag}`);
     out = out.replace(new RegExp(`\\b${field}\\b`, "g"), `--${flag}`);
   }
+  // "ISO 8601" means nothing to most people; show the shape instead.
+  out = out.replace(
+    /\bmust be an ISO[ -]?8601 (timestamp|date(?:[- ]?time)?)\b/gi,
+    "must be a date and time like 2026-11-25T09:00:00Z"
+  );
   // Point login advice at the deployment the command was aimed at.
   const dep = deploymentFlag(origin);
   if (dep) {

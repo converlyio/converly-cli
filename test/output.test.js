@@ -133,6 +133,22 @@ test("whoami text shows plan, trial end and sites", () => {
   assert.match(out, /Main {2}example\.com {2}site_1/);
 });
 
+test("whoami text doesn't say trial twice for the trial plan", () => {
+  const out = formatResult(
+    "whoami",
+    { subscription: { plan_name: "14-day Trial", status: "trialing", trial_ends_at: "2026-12-10T00:00:00Z" }, sites: [] },
+    { mode: "text", origin: PROD_ORIGIN, stream: pipe }
+  );
+  assert.match(out, /Plan:  Free trial until 10 Dec 2026/);
+});
+
+test("cliSpeak shows the date shape instead of saying ISO 8601", () => {
+  assert.equal(
+    cliSpeak("occurred_after must be an ISO 8601 timestamp", { commandFlags: ["since"] }),
+    "--since must be a date and time like 2026-11-25T09:00:00Z"
+  );
+});
+
 test("reasonFor explains each delivery code and names the command", () => {
   const r = reasonFor("destination_not_connected", "google-ads", { origin: STAGING_ORIGIN, site: "site_1" });
   assert.match(r, /Google Ads isn't connected to this site/);
