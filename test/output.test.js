@@ -74,10 +74,10 @@ test("no reason (and no 'undefined' command) without a destination id", () => {
 test("first-conversion step says to submit the real form first", () => {
   const out = formatResult(
     "status",
-    { site_id: "s", items: [{ id: "first_conversion", status: "action_needed", what_and_why: "No conversions yet.", before_running: "Submit the real form on the website once.", command: "converly events list --site s" }] },
+    { site_id: "s", items: [{ id: "first_conversion", status: "action_needed", what_and_why: "No conversions yet.", before_running: "Make one real conversion happen first.", command: "converly events list --site s" }] },
     { mode: "text", origin: STAGING_ORIGIN, stream: pipe }
   );
-  assert.match(out, /First: Submit the real form on the website once\.\n {4}Then run: converly events list --site s --staging/);
+  assert.match(out, /First: Make one real conversion happen first\.\n {4}Then run: converly events list --site s --staging/);
 });
 
 test("json mode is byte-identical to the old output for every command", () => {
@@ -204,6 +204,13 @@ test("whoami keeps a named plan's tier while trialing", () => {
     { mode: "text", origin: PROD_ORIGIN, stream: pipe }
   );
   assert.match(out, /Plan:  Enterprise Trial, free trial until 10 Dec 2026/);
+});
+
+test("whoami: 'Free Trial' isn't doubled and an odd plan value doesn't crash", () => {
+  const free = formatResult("whoami", { subscription: { plan_name: "Free Trial", status: "trialing" }, sites: [] }, { mode: "text", origin: PROD_ORIGIN, stream: pipe });
+  assert.match(free, /Plan:  Free trial\n/);
+  const odd = formatResult("whoami", { subscription: { plan_name: 42, status: "trialing" }, sites: [] }, { mode: "text", origin: PROD_ORIGIN, stream: pipe });
+  assert.match(odd, /Plan:  42, free trial/);
 });
 
 test("a date-only ISO error is left alone", () => {

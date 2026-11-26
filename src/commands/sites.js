@@ -134,7 +134,7 @@ export async function status({ args, flags, origin }) {
         item.status === "action_needed" ? commandFor(item) : null;
       if (!command) return item;
       return item.id === "first_conversion"
-        ? { ...item, before_running: "Submit the real form on the website once.", command }
+        ? { ...item, before_running: "Make one real conversion happen first (for example, submit the real form on the website).", command }
         : { ...item, command };
     }),
   };

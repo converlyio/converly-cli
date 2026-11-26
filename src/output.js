@@ -256,12 +256,12 @@ function renderStatus(result, { origin, color }) {
 
 function describeSubscription(sub) {
   if (!sub || typeof sub !== "object") return null;
-  const plan = sub.plan_name ?? sub.plan_id ?? "Unknown plan";
+  const plan = String(sub.plan_name ?? sub.plan_id ?? "Unknown plan");
   if (sub.status === "trialing") {
     const ends = formatDate(sub.trial_ends_at);
     const until = ends ? ` until ${ends}` : "";
     // The trial plan is itself called "14-day Trial"; don't say trial twice.
-    return /^(\d+[- ]day )?trial$/i.test(plan.trim()) ? `Free trial${until}` : `${plan}, free trial${until}`;
+    return /^(\d+[- ]day |free )?trial$/i.test(plan.trim()) ? `Free trial${until}` : `${plan}, free trial${until}`;
   }
   if (sub.status === "active") {
     return sub.cancel_at_period_end
