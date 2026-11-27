@@ -19,6 +19,7 @@ import * as flows from "./commands/flows.js";
 import * as triggers from "./commands/triggers.js";
 import * as events from "./commands/events.js";
 import * as misc from "./commands/misc.js";
+import * as help from "./commands/help.js";
 import {
   OUTPUT_MODES,
   formatError,
@@ -42,7 +43,6 @@ const BOOLEAN_FLAGS = new Set([
   "version",
   "no-open",
   "yes",
-  "allow-real",
   "device",
   "browser",
 ]);
@@ -50,7 +50,7 @@ const BOOLEAN_FLAGS = new Set([
 // Explicit boolean values are accepted ONLY as the exact words true/false
 // (case-insensitive). Anything else — `flase`, `0`, `no` — must be an
 // error, never a silent coercion, because these flags include destructive
-// ones (`--yes` deletes, `--allow-real` fires a real conversion).
+// ones (`--yes` deletes a flow or sends a support request).
 function parseBoolStrict(value) {
   const v = String(value).toLowerCase();
   if (v === "true") return true;
@@ -75,7 +75,7 @@ export function parseArgv(argv) {
         const name = token.slice(2, eq);
         const value = token.slice(eq + 1);
         if (BOOLEAN_FLAGS.has(name)) {
-          // `--signup=false` → false; `--yes=flase` / `--allow-real=0` are
+          // `--signup=false` → false; `--yes=flase` / `--yes=0` are
           // NOT silently true — they're errors. Default the stored value to
           // the SAFE false so nothing downstream acts destructively even in
           // the window before we report the error.
@@ -97,7 +97,7 @@ export function parseArgv(argv) {
         const next = argv[i + 1];
         if (BOOLEAN_FLAGS.has(name)) {
           // A boolean flag may be followed by an explicit true/false word.
-          // Consume it so `--allow-real false` and `--yes false` genuinely
+          // Consume it so `--yes false` genuinely
           // DISABLE the flag. Any OTHER following token is a positional (not
           // this flag's value) — so `--yes maybe` is bare-true + "maybe"
           // positional, and the command's positional-arity check catches it.
@@ -336,12 +336,6 @@ export const COMMANDS = {
     flags: [],
     help: "Take a flow offline.",
   },
-  "test-event": {
-    run: flows.testEvent,
-    usage: "converly test-event --flow <flow_id> [--action-id act-1] [--meta-code TEST123] [--reddit-id t2_xxx] [--tiktok-code TEST123] [--allow-real]",
-    flags: ["flow", "action-id", "action-json", "meta-code", "reddit-id", "tiktok-code", "allow-real"],
-    help: "Fire a test conversion through a flow's action to the real ad platform. Defaults to the flow's first action. Sandbox codes come from each platform's test tools. Pass --meta-code (Meta Events Manager test events), --reddit-id (Reddit) or --tiktok-code (TikTok) to keep the test out of real data. Destinations with no sandbox mode (Google Ads, GA4, LinkedIn, ChatGPT Ads) require --allow-real, which reports a REAL conversion, so the user must explicitly agree first.",
-  },
   "events list": {
     run: events.list,
     usage: "converly events list [--site <id>] [--flow <id>] [--email x@y.com] [--status completed|failed] [--since ISO] [--until ISO] [--limit N]",
@@ -353,6 +347,24 @@ export const COMMANDS = {
     usage: "converly events get <event_id>",
     flags: [],
     help: "One event with per-destination delivery status and any pipeline notices.",
+  },
+  "docs search": {
+    run: help.search,
+    usage: 'converly docs search "<question>"   (e.g. "cookie banner")',
+    flags: [],
+    help: "Search Converly's help articles. Use this before answering a question about how Converly or an ad platform behaves, instead of answering from memory. Returns the matching articles; read one with `converly docs read <url>`.",
+  },
+  "docs read": {
+    run: help.read,
+    usage: "converly docs read <article url>",
+    flags: [],
+    help: "Read one help article in full, by the url `docs search` returned.",
+  },
+  "support": {
+    run: help.support,
+    usage: 'converly support --kind connection_problem|form_tool_request|delivery_problem|question --message "<what happened>" [--platform <name>] [--site <site_id>] --yes',
+    flags: ["kind", "message", "platform", "site", "yes"],
+    help: "Send a request to Converly support for the account. ASK THE USER FIRST and only send once they say yes; --yes records that they agreed. Converly adds the account, site and recent history itself, so --message only needs what happened and what was tried. Up to ten a day per account. Don't promise when support will reply.",
   },
   // NOTE: `rules list` / `rules create` were removed deliberately. They
   // recorded internal-traffic exclusion rules that nothing enforces, so
@@ -406,6 +418,10 @@ const COMMAND_MAX_ARGS = {
   "flows publish": 1,
   "flows unpublish": 1,
   "events get": 1,
+  // A question may arrive unquoted (`docs search cookie banner`); the words
+  // are joined back together.
+  "docs search": 30,
+  "docs read": 1,
   api: 2,
 };
 
@@ -415,8 +431,8 @@ function overviewHelp() {
     "",
     "Output: when stdout is piped (agents, scripts) every data command",
     "prints one JSON document to stdout and errors as JSON on stderr. In a",
-    "terminal, login, status, whoami, events get and errors print plain",
-    "sentences instead. --output json|text forces either (env",
+    "terminal, login, status, whoami, events get, docs, support and errors",
+    "print plain sentences instead. --output json|text forces either (env",
     "CONVERLY_OUTPUT works too). Other global flags: --staging (staging",
     "deployment), --api <origin> (custom deployment), --idempotency-key",
     "<key> (pin the key for a POST so an explicit retry can't double-create).",
@@ -431,17 +447,19 @@ function overviewHelp() {
     "  converly login --signup",
     "  converly status                                  # the ordered checklist — run this first",
     "  converly sites update <site> --domain example.com",
-    "  converly install snippet <site>                  # add tag to the website",
-    "  converly destinations connect google-ads --site <site>",
-    "  converly handoffs wait <handoff_id>              # human authorizes in browser",
     "  converly triggers                                # find the form tool slug + its setup block",
     "  converly triggers connect typeform --site <site> # ONLY for requires_connection providers, then handoffs wait",
-    "  converly destinations conversions google-ads     # pick a conversion",
+    "  converly destinations connect google-ads --site <site>",
+    "  converly handoffs wait <handoff_id>              # human authorizes in browser",
+    "  converly destinations conversions google-ads     # let the user pick a conversion",
     "  converly flows create --site <site> --name \"Leads\" --trigger generic-form --destination google-ads --conversion-id <id>",
-    "  converly flows validate <flow>                   # act on warnings — they name what won't capture",
+    "  converly flows validate <flow>                   # read the flow back to the user, get a yes",
     "  converly flows publish <flow>",
-    "  converly test-event --flow <flow>                # verify destination delivery",
-    "  converly events list --limit 10                  # watch real conversions",
+    "  converly install snippet <site>                  # then add the tag to the website",
+    "  converly events list --limit 10                  # after one real test submission",
+    "",
+    "Questions: `converly docs search \"<question>\"`. Problems Converly",
+    "can't explain: `converly support ... --yes`, once the user agrees.",
     "",
     "Commands:",
   ];
@@ -554,7 +572,7 @@ export async function main(argv) {
 
   // A KNOWN boolean flag given a value that isn't exactly true/false is an
   // error, never a silent coercion — this is the guard that stops
-  // `--yes=flase` or `--allow-real=0` from acting as a destructive `true`.
+  // `--yes=flase` or `--yes=0` from acting as a destructive `true`.
   const realInvalidBool = (invalidBooleanFlags ?? []).filter((f) =>
     allowed.has(f.name)
   );
@@ -641,6 +659,11 @@ export async function main(argv) {
         error.user_message = body.user_message;
       }
       if (body.hint && !error.hint) error.hint = body.hint;
+      // Some refusals (support limit, missing yes) answer with the server's
+      // assistant_guidance and no error envelope. Keep it for agents.
+      if (body.assistant_guidance && !error.assistant_guidance) {
+        error.assistant_guidance = body.assistant_guidance;
+      }
       // A CLIENT-classified failure (reauth_required, credentials_changed)
       // is authoritative over the server body the ApiError was built from —
       // its code/message must not be masked by the server's 401 payload.

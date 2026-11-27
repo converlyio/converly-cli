@@ -1,6 +1,6 @@
 /**
  * Flow commands: the trigger/action catalogue, CRUD, validate, publish,
- * unpublish, and the end-to-end test event.
+ * unpublish.
  */
 
 import { apiRequest } from "../http.js";
@@ -235,99 +235,4 @@ export async function publish({ args, origin }) {
 
 export async function unpublish({ args, origin }) {
   return apiRequest(origin, "POST", `/flows/${requireFlowId(args, "converly flows unpublish <flow_id>")}/unpublish`);
-}
-
-export async function testEvent({ args, flags, origin }) {
-  // No positionals — the flow is named with --flow. A stray positional
-  // usually means a boolean was mis-typed (e.g. `--allow-real 0` leaves
-  // "0" here while --allow-real stays true), so refuse rather than fire a
-  // real conversion off a misread command.
-  if (args && args.length > 0) {
-    throw new Error(
-      `test-event takes no positional arguments (got ` +
-        `${args.map((a) => JSON.stringify(a)).join(", ")}). ` +
-        `Name the flow with --flow <flow_id>.`
-    );
-  }
-  if (!flags.flow) {
-    throw new Error("Missing --flow <flow_id>.");
-  }
-  assertIdSegment(flags.flow, "flow id");
-
-  let action;
-  if (flags["action-id"] || flags["action-json"]) {
-    if (!flags["action-json"]) {
-      // Look the action up on the flow by id.
-      const flow = await apiRequest(origin, "GET", `/flows/${flags.flow}`);
-      const found = (flow.actions_config ?? []).find(
-        (a) => a.id === flags["action-id"]
-      );
-      if (!found) {
-        throw new Error(
-          `Action "${flags["action-id"]}" not found on ${flags.flow}.`
-        );
-      }
-      action = found;
-    } else {
-      action = parseJsonFlag(flags["action-json"], "action-json");
-    }
-  } else {
-    // Default: the flow's first action.
-    const flow = await apiRequest(origin, "GET", `/flows/${flags.flow}`);
-    action = (flow.actions_config ?? [])[0];
-    if (!action) {
-      throw new Error(
-        `Flow ${flags.flow} has no actions configured — nothing to test.`
-      );
-    }
-  }
-
-  const result = await apiRequest(origin, "POST", "/test-event", {
-    body: {
-      flow_id: flags.flow,
-      action: {
-        action_id: action.action_id ?? action.id,
-        integration_id: action.integration_id ?? action.integrationId,
-        config: action.config ?? {},
-      },
-      ...(flags["meta-code"] && { meta_test_event_code: flags["meta-code"] }),
-      ...(flags["reddit-id"] && { reddit_test_id: flags["reddit-id"] }),
-      ...(flags["tiktok-code"] && { tiktok_test_event_code: flags["tiktok-code"] }),
-      ...(flags["allow-real"] && { allow_real_conversion: true }),
-    },
-  });
-
-  // Browser-only destinations have NO server leg to test — the raw "no
-  // server-side forwarder" answer is true but unhelpful (test-campaign
-  // finding). Derive the explanation from catalogue DATA, never a
-  // hardcoded platform list, and tell the agent what the real test is.
-  if (
-    result &&
-    result.server_status === "not_attempted" &&
-    /no server-side forwarder/i.test(result.error_message ?? "")
-  ) {
-    try {
-      const types = await apiRequest(origin, "GET", "/destination-types", {
-        public: true,
-      });
-      const entry = (types?.data ?? []).find(
-        (t) => t.type === result.integration_id
-      );
-      if (entry?.setup?.delivery === "browser") {
-        return {
-          ...result,
-          next_step:
-            `${entry.name ?? result.integration_id} fires from the visitor's ` +
-            "browser into the platform's own tag, so there is no server call " +
-            "to test. Prove it with a real submission on the page and check " +
-            "`converly events list` — client_status \"fired\" is the success " +
-            "signal. The platform's own tag must be on the page (see the " +
-            "destination's setup.page_prerequisite).",
-        };
-      }
-    } catch {
-      /* annotation is best-effort — return the raw result */
-    }
-  }
-  return result;
 }

@@ -62,8 +62,9 @@ export async function snippet({ args, origin }) {
       "in a real browser (you can do this yourself if you have browser " +
       "tools) and verify with `converly install status " +
       args[0] +
-      '`. The loader phones home on page load and detection becomes ' +
-      '"confirmed" within moments.',
+      '`. The loader only phones home once a flow is published, so publish ' +
+      'first; then detection becomes "confirmed" within moments of a page ' +
+      'load. Until a flow is live, "never_seen" doesn\'t mean the tag is missing.',
   };
 }
 

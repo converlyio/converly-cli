@@ -109,19 +109,19 @@ test("login scopes stay inside the server's registration ceiling", () => {
   }
 });
 
-test("parseArgv: --allow-real is boolean, --reddit-id takes a value", () => {
-  // --allow-real is followed by a non-flag token; only its BOOLEAN_FLAGS
+test("parseArgv: --yes is boolean, --message takes a value", () => {
+  // --yes is followed by a non-flag token; only its BOOLEAN_FLAGS
   // registration keeps it from swallowing "extra" as a value.
   const { args, flags } = parseArgv([
-    "test-event",
-    "--allow-real",
+    "support",
+    "--yes",
     "extra",
-    "--reddit-id",
+    "--message",
     "x",
   ]);
-  assert.equal(flags["allow-real"], true);
-  assert.equal(flags["reddit-id"], "x");
-  assert.deepEqual(args, ["test-event", "extra"]);
+  assert.equal(flags.yes, true);
+  assert.equal(flags.message, "x");
+  assert.deepEqual(args, ["support", "extra"]);
 });
 
 test("parseArgv: --flag=false on a boolean flag means false", () => {
@@ -151,9 +151,9 @@ test("parseArgv: a non-true/false value on a boolean flag is an error, not true"
   assert.equal(a.flags.yes, false, "unrecognised value defaults to SAFE false");
   assert.deepEqual(a.invalidBooleanFlags, [{ name: "yes", value: "flase" }]);
 
-  const b = parseArgv(["test-event", "--allow-real=0"]);
-  assert.equal(b.flags["allow-real"], false);
-  assert.deepEqual(b.invalidBooleanFlags, [{ name: "allow-real", value: "0" }]);
+  const b = parseArgv(["support", "--yes=0"]);
+  assert.equal(b.flags.yes, false);
+  assert.deepEqual(b.invalidBooleanFlags, [{ name: "yes", value: "0" }]);
 });
 
 test("parseArgv: exact true/false on a boolean flag is honoured, no error", () => {

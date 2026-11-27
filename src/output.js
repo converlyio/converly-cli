@@ -4,7 +4,7 @@
  * Two audiences use the CLI. AI agents and scripts read stdout as one JSON
  * document, and that contract never changes for them. People typing in a
  * terminal get plain sentences for the commands a newcomer runs first
- * (login, status, whoami, events get) and for errors.
+ * (login, status, whoami, events get), for help and support, and for errors.
  *
  * The switch is whether stdout is a terminal. Agents run the CLI with
  * stdout piped, so they keep JSON without doing anything. `--output json`
@@ -256,6 +256,12 @@ export function withReasons(event, { origin, site } = {}) {
 // Text renderers, keyed by command name. A command without one prints JSON
 // even in a terminal.
 
+/** The server's own sentence(s) for this reply, printed as given. */
+function guidanceText(result) {
+  const g = result?.assistant_guidance;
+  return g && typeof g.text === "string" && g.text.trim() !== "" ? g.text.trim() : null;
+}
+
 function renderLogin(result, { origin, color }) {
   const lines = [green("✓", color) + " " + bold("You're logged in to Converly.", color)];
   if (origin && origin !== PROD_ORIGIN) lines.push(dim(`  (${origin})`, color));
@@ -302,6 +308,8 @@ function renderStatus(result, { origin, color }) {
       : `${done} of ${items.length} done.` +
           (done === items.length ? " Tracking is set up." : "")
   );
+  const note = guidanceText(result);
+  if (note) lines.push("", note);
   return lines.join("\n");
 }
 
@@ -360,7 +368,40 @@ function renderEvent(result, { color }) {
     const text = n?.user_message ?? n?.message ?? n?.error_code;
     if (text) lines.push(`! ${text}`);
   }
+  const note = guidanceText(result);
+  if (note) lines.push("", note);
   return lines.join("\n");
+}
+
+function renderHelpSearch(result, { color }) {
+  const articles = Array.isArray(result?.articles) ? result.articles : [];
+  const lines = [];
+  for (const a of articles) {
+    if (!a || typeof a !== "object") continue;
+    lines.push(bold(a.title ?? a.url ?? "Untitled", color));
+    if (a.description) lines.push(`  ${a.description}`);
+    if (a.url) lines.push(dim(`  ${a.url}`, color));
+    lines.push("");
+  }
+  const note = guidanceText(result);
+  if (note) lines.push(note);
+  else if (articles.length === 0) lines.push("No help articles matched.");
+  return lines.join("\n").trimEnd();
+}
+
+function renderHelpArticle(result, { color }) {
+  const article = result?.article ?? {};
+  const lines = [];
+  if (article.title) lines.push(bold(article.title, color));
+  if (article.url) lines.push(dim(article.url, color));
+  if (article.text) lines.push("", String(article.text).trim());
+  const note = guidanceText(result);
+  if (note) lines.push("", note);
+  return lines.join("\n");
+}
+
+function renderSupport(result) {
+  return guidanceText(result) ?? "Sent to Converly support.";
 }
 
 const RENDERERS = {
@@ -368,6 +409,9 @@ const RENDERERS = {
   status: renderStatus,
   whoami: renderWhoami,
   "events get": renderEvent,
+  "docs search": renderHelpSearch,
+  "docs read": renderHelpArticle,
+  support: renderSupport,
 };
 
 /**
@@ -388,10 +432,6 @@ export function formatResult(commandName, result, { mode, origin, stream = proce
 // person actually types. Only applied when the command HAS that flag, so a
 // message is never rewritten to suggest a flag the command doesn't take.
 const FIELD_TO_FLAG = [
-  ["allow_real_conversion", "allow-real"],
-  ["meta_test_event_code", "meta-code"],
-  ["reddit_test_id", "reddit-id"],
-  ["tiktok_test_event_code", "tiktok-code"],
   ["occurred_after", "since"],
   ["occurred_before", "until"],
   ["action_id", "action-id"],
@@ -408,7 +448,7 @@ export function cliSpeak(text, { commandFlags = [], origin } = {}) {
   let out = text;
   for (const [field, flag] of FIELD_TO_FLAG) {
     if (!commandFlags.includes(flag)) continue;
-    // "set allow_real_conversion: true" / "allow_real_conversion=true" → "add --allow-real"
+    // "set some_flag: true" / "some_flag=true" → "add --some-flag"
     out = out.replace(
       new RegExp(`\\bset\\s+${field}\\s*[:=]\\s*true\\b`, "g"),
       `add --${flag}`
@@ -450,6 +490,8 @@ export function formatError(payload, { mode, stream = process.stderr, env = proc
     lines.push(dim(error.message, color));
   }
   if (error.hint) lines.push(error.hint);
+  const note = error.assistant_guidance?.text;
+  if (typeof note === "string" && note !== main && !lines.includes(note)) lines.push(note);
   if (payload?.handoff?.url) lines.push(`Open this link to finish: ${payload.handoff.url}`);
   if (error.retryable) lines.push("It's safe to run the same command again.");
   if (error.idempotency_key) {

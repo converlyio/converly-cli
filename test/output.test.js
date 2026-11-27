@@ -307,12 +307,9 @@ test("events get text shows each destination and its reason", () => {
 });
 
 test("cliSpeak turns API field names into the command's own flags", () => {
-  const msg =
-    "Pass the platform's sandbox code (meta_test_event_code / reddit_test_id / tiktok_test_event_code), or set allow_real_conversion: true to proceed.";
-  const out = cliSpeak(msg, { commandFlags: ["flow", "action-id", "meta-code", "reddit-id", "tiktok-code", "allow-real"] });
   assert.equal(
-    out,
-    "Pass the platform's sandbox code (--meta-code / --reddit-id / --tiktok-code), or add --allow-real to proceed."
+    cliSpeak("site_id is required on multi-site accounts", { commandFlags: ["site"] }),
+    "--site is required on multi-site accounts"
   );
   assert.equal(
     cliSpeak("occurred_after must not be later than occurred_before", { commandFlags: ["since", "until"] }),

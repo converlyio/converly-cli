@@ -45,7 +45,6 @@ A checklist of your setup: what's done, what isn't, and the exact command for ea
 ```bash
 converly status
 converly sites update site_XXX --domain example.com
-converly install snippet site_XXX            # add the tag to your website's <head>
 converly destinations connect google-ads --site site_XXX
 converly handoffs wait hdf_XXX               # finish connecting in the browser
 converly destinations conversions google-ads --site site_XXX   # pick the conversion to report
@@ -53,20 +52,31 @@ converly flows create --site site_XXX --name "Demo requests" \
   --trigger generic-form --destination google-ads --conversion-id 123456
 converly flows validate flow_XXX
 converly flows publish flow_XXX
+converly install snippet site_XXX            # then add the tag to your website's <head>
 ```
 
-Then submit the real form on your website once and check it arrived:
+The tag only reports in once a flow is published, so publish first, then add it. Then submit the real form on your website once and check it arrived:
 
 ```bash
 converly events list --limit 10
 converly events get evt_XXX                  # whether each ad platform accepted it, and why not
 ```
 
-A real submission is the only end-to-end proof: it shows the tag is on the page, the form is detected and the conversion reached the ad platform. `converly test-event --flow flow_XXX` only checks the last step, sending to the ad platform. For Google Ads, GA4, LinkedIn and ChatGPT Ads that sends a real conversion, so it needs `--allow-real`. Meta, Reddit and TikTok can use their test codes instead (`--meta-code`, `--reddit-id`, `--tiktok-code`).
+A real submission is the proof that tracking works: it shows the tag is on the page, the form is detected and the conversion reached the ad platform.
+
+## Help and support
+
+```bash
+converly docs search "cookie banner"         # search Converly's help articles
+converly docs read <article url>             # read one in full
+converly support --kind question --message "..." --yes
+```
+
+`converly support` sends a request to Converly support with your account and site details attached. `--yes` confirms you want it sent.
 
 ## Output
 
-In a terminal, `login`, `status`, `whoami`, `events get` and error messages print plain sentences. Everywhere else, for example when an AI agent or a script runs the CLI, every data command prints one JSON document on stdout. Use `--output json` or `--output text` to choose (or set `CONVERLY_OUTPUT`).
+In a terminal, `login`, `status`, `whoami`, `events get`, `docs`, `support` and error messages print plain sentences. Everywhere else, for example when an AI agent or a script runs the CLI, every data command prints one JSON document on stdout. Use `--output json` or `--output text` to choose (or set `CONVERLY_OUTPUT`).
 
 ## For AI agents
 
