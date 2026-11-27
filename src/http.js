@@ -40,7 +40,7 @@ export class ApiError extends Error {
 export class AuthMissingError extends Error {
   constructor(origin) {
     super(
-      `Not logged in to ${origin}. Run \`converly login\` (or set CONVERLY_API_KEY).`
+      `Not logged in to ${origin}. Run \`converly login\`, or \`converly login --signup\` to create a Converly account (or set CONVERLY_API_KEY).`
     );
     this.name = "AuthMissingError";
   }

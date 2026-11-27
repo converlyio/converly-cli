@@ -150,7 +150,46 @@ function proseNames(text) {
 /** Point every `converly ...` command in a suggestion at the same deployment. */
 function withDeployment(command, origin) {
   const dep = deploymentFlag(origin);
-  return dep ? command.replace(/converly [^,]*/g, (c) => c.trimEnd() + dep) : command;
+  if (!dep) return command;
+  return command.replace(/converly [^,]*/g, (c) => (c.includes(dep.trim()) ? c : c.trimEnd() + dep));
+}
+
+/**
+ * The same, for prose: every `converly ...` inside backticks gets the flag.
+ * An agent copies these, so on staging they must not quietly hit production.
+ */
+export function proseWithDeployment(text, origin) {
+  const dep = deploymentFlag(origin);
+  if (!dep || typeof text !== "string") return text;
+  return text.replace(/`(converly [^`]*)`/g, (whole, c) =>
+    c.includes(dep.trim()) ? whole : `\`${c.trimEnd()}${dep}\``
+  );
+}
+
+/**
+ * Every runnable suggestion in a reply, in either output mode, names the
+ * deployment the command was aimed at: item commands, next_step and the
+ * server's guidance sentence. Production needs no flag, so it is unchanged.
+ */
+export function pointAtDeployment(result, origin) {
+  if (!deploymentFlag(origin) || !result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const out = { ...result };
+  if (typeof out.next_step === "string") out.next_step = proseWithDeployment(out.next_step, origin);
+  if (Array.isArray(out.items)) {
+    out.items = out.items.map((item) =>
+      item && typeof item.command === "string" ? { ...item, command: withDeployment(item.command, origin) } : item
+    );
+  }
+  const g = out.assistant_guidance;
+  if (g && typeof g === "object") {
+    out.assistant_guidance = { ...g };
+    for (const key of ["text", "person_step", "what_happened"]) {
+      if (typeof g[key] === "string") out.assistant_guidance[key] = proseWithDeployment(g[key], origin);
+    }
+  }
+  return out;
 }
 
 /**
@@ -417,8 +456,9 @@ const RENDERERS = {
 /**
  * The string to write to stdout for a successful command.
  */
-export function formatResult(commandName, result, { mode, origin, stream = process.stdout, env = process.env }) {
+export function formatResult(commandName, rawResult, { mode, origin, stream = process.stdout, env = process.env }) {
   const renderer = RENDERERS[commandName];
+  const result = pointAtDeployment(rawResult, origin);
   if (mode === "text" && renderer) {
     return renderer(result, { origin, color: useColor(stream, env) }) + "\n";
   }
@@ -461,13 +501,8 @@ export function cliSpeak(text, { commandFlags = [], origin } = {}) {
     /\bmust be an ISO[ -]?8601 (timestamp|date[- ]?time)\b/gi,
     "must be a date and time like 2026-11-25T09:00:00Z"
   );
-  // Point login advice at the deployment the command was aimed at.
-  const dep = deploymentFlag(origin);
-  if (dep) {
-    out = out.replace(/`converly login`/g, `\`converly login${dep}\``);
-    out = out.replace(/`converly login --device`/g, `\`converly login --device${dep}\``);
-  }
-  return out;
+  // Point every suggested command at the deployment the command was aimed at.
+  return proseWithDeployment(out, origin);
 }
 
 /** Apply cliSpeak to every human-readable field of an error object. */

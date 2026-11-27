@@ -131,3 +131,34 @@ test("text mode prints the server's guidance on status, events get, docs and sup
   assert.match(search, /^T\n {2}D\n {2}https:\/\/help\.converly\.io\/t\n\nG\.\n$/);
   assert.equal(formatResult("support", { assistant_guidance: { code: "support_sent", text: "Sent." } }, { mode: "text", stream: pipe }), "Sent.\n");
 });
+
+test("on staging every suggested command carries --staging, in JSON as well as text", async () => {
+  const { STAGING_ORIGIN, PROD_ORIGIN } = await import("../src/config.js");
+  const result = {
+    items: [
+      { status: "action_needed", command: "converly flows validate <flow_id>, then converly flows publish <flow_id>" },
+      { status: "action_needed", command: "converly events list --site s --staging" },
+    ],
+    next_step: "Then run `converly handoffs wait hdf_1` to confirm.",
+    assistant_guidance: { code: "x", text: "Run `converly events list --site s` after one real submission." },
+  };
+  const json = JSON.parse(formatResult("status", result, { mode: "json", origin: STAGING_ORIGIN }));
+  assert.equal(json.items[0].command, "converly flows validate <flow_id> --staging, then converly flows publish <flow_id> --staging");
+  assert.equal(json.items[1].command, "converly events list --site s --staging", "never added twice");
+  assert.equal(json.next_step, "Then run `converly handoffs wait hdf_1 --staging` to confirm.");
+  assert.equal(json.assistant_guidance.text, "Run `converly events list --site s --staging` after one real submission.");
+  const text = formatResult("status", result, { mode: "text", origin: STAGING_ORIGIN, stream: { isTTY: false } });
+  assert.doesNotMatch(text, /--staging --staging/);
+  assert.match(text, /converly flows publish <flow_id> --staging/);
+  const prod = JSON.parse(formatResult("status", result, { mode: "json", origin: PROD_ORIGIN }));
+  assert.deepEqual(prod, result, "production replies are unchanged");
+});
+
+test("a staging error points its commands at staging", async () => {
+  const { STAGING_ORIGIN } = await import("../src/config.js");
+  const { cliSpeak } = await import("../src/output.js");
+  assert.equal(
+    cliSpeak("Not logged in. Run `converly login`, or `converly login --signup` to create one.", { origin: STAGING_ORIGIN }),
+    "Not logged in. Run `converly login --staging`, or `converly login --signup --staging` to create one."
+  );
+});
