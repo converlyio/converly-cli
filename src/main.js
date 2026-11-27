@@ -513,6 +513,20 @@ export async function main(argv) {
     return;
   }
 
+  // Removed in 1.3.0. Older guides (including the marketingskills Converly
+  // guide) still mention it, so say what replaced it instead of
+  // "Unknown command".
+  if (args[0] === "test-event") {
+    fail({
+      error: {
+        code: "command_removed",
+        message:
+          "converly test-event was removed. To check tracking, submit the real form on the website once, then run converly events list. converly events get <event_id> shows whether each ad platform accepted it.",
+      },
+    });
+    return;
+  }
+
   const match = matchCommand(args);
   if (!match) {
     fail(

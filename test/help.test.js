@@ -38,8 +38,14 @@ async function runAgainst(args, reply) {
   return { code, out, err, seen };
 }
 
-test("test-event is gone", () => {
+test("test-event is gone, and says what replaced it", async () => {
   assert.equal(matchCommand(["test-event"]), null);
+  const { code, err, seen } = await runAgainst(["test-event", "--flow", "flow_1"], () => [200, {}]);
+  assert.equal(code, 1);
+  assert.equal(seen.length, 0);
+  const e = JSON.parse(err).error;
+  assert.equal(e.code, "command_removed");
+  assert.match(e.message, /converly events list/);
 });
 
 test("docs search joins an unquoted question and passes the reply through", async () => {
